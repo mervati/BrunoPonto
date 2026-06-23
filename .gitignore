@@ -1,0 +1,15 @@
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Dados locais (credenciais e logs)
+bruno_ponto_config.json
+bruno_ponto_log.txt
+
+# Claude Code
+.claude/
