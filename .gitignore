@@ -11,5 +11,3 @@ __pycache__/
 bruno_ponto_config.json
 bruno_ponto_log.txt
 
-# Claude Code
-.claude/

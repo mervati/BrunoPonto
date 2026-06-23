@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python3 *)",
+      "Bash(cmd.exe *)",
+      "Bash(Kobi\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\Scripts\\\\pip.exe install *)",
+      "Bash(powershell.exe *)",
+      "Bash(pip3 show *)",
+      "Bash('/mnt/c/Users/Bruno Kobi/AppData/Local/Programs/Python/Python313/python.exe' -m pip show pyinstaller)",
+      "Bash('/mnt/c/Users/Bruno Kobi/AppData/Local/Programs/Python/Python313/python.exe' -m PyInstaller BrunoPonto.spec --noconfirm)"
+    ]
+  }
+}
