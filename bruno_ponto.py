@@ -433,21 +433,27 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
             with _driver_lock:
                 if _driver is None or not _driver_ativo(_driver):
                     _driver = _criar_driver()
-                    lat, lng, local = _get_coordenadas_ip()
-                    if lat and lng:
-                        try:
-                            _driver.execute_cdp_cmd(
-                                "Emulation.setGeolocationOverride",
-                                {"latitude": lat, "longitude": lng, "accuracy": 50}
-                            )
-                            geo_txt = (f"{local} ({lat:.4f}, {lng:.4f})"
-                                       if local else f"{lat:.4f}, {lng:.4f}")
-                            log.info(f"Geolocalização: {geo_txt}")
-                            if modo_teste:
-                                app_ref.root.after(0, lambda t=geo_txt: app_ref.add_log(
-                                    f"[TESTE] Localização: {t}", "teste"))
-                        except Exception as e:
-                            log.warning(f"Geolocalização CDP: {e}")
+
+                # Geolocalização — sempre aplicada e exibida
+                lat, lng, local = _get_coordenadas_ip()
+                if lat and lng:
+                    try:
+                        _driver.execute_cdp_cmd(
+                            "Emulation.setGeolocationOverride",
+                            {"latitude": lat, "longitude": lng, "accuracy": 50}
+                        )
+                        geo_txt = (f"{local} ({lat:.4f}, {lng:.4f})"
+                                   if local else f"{lat:.4f}, {lng:.4f}")
+                        log.info(f"Geolocalização: {geo_txt}")
+                        app_ref.root.after(0, lambda t=geo_txt: app_ref.add_log(
+                            f"Localização: {t}", "ok"))
+                    except Exception as e:
+                        log.warning(f"Geolocalização CDP: {e}")
+                        app_ref.root.after(0, lambda: app_ref.add_log(
+                            "Localização: não aplicada (CDP indisponível)", "info"))
+                else:
+                    app_ref.root.after(0, lambda: app_ref.add_log(
+                        "Localização: não disponível (sem resposta do IP)", "info"))
 
                 _driver.get(URL_PONTO)
                 _preencher_formulario(_driver, cfg, modo_teste=modo_teste)
