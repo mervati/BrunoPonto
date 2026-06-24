@@ -66,13 +66,20 @@ else:
 CFG_FILE = os.path.join(_BASE_DIR, "bruno_ponto_config.json")
 LOG_FILE = os.path.join(_BASE_DIR, "bruno_ponto_log.txt")
 
+_MSG_PADRAO = (
+    "✅ Ponto batido com sucesso!\n"
+    "📅 {dia_semana}, {data} às {hora}.\n\n"
+    "Registro automático via bruno.ponto v{versao} 🟢"
+)
+
 DEFAULT_CONFIG = {
-    "codigo_empregador": "",
-    "pin": "",
-    "telegram_token":   "",
-    "telegram_chat_id": "",
-    "schedules": [],
-    "modo_teste": True,
+    "codigo_empregador":  "",
+    "pin":                "",
+    "telegram_token":     "",
+    "telegram_chat_id":   "",
+    "telegram_mensagem":  _MSG_PADRAO,
+    "schedules":          [],
+    "modo_teste":         True,
 }
 
 CORES = {
@@ -302,16 +309,18 @@ def _mover_mouse_z():
 DIAS_PT = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira",
            "Sexta-feira", "Sábado", "Domingo"]
 
-def _msg_telegram(hora_label: str, modo_teste: bool) -> str:
-    now = datetime.now()
+def _msg_telegram(hora_label: str, modo_teste: bool, template: str = "") -> str:
+    now        = datetime.now()
     dia_semana = DIAS_PT[now.weekday()]
     data_fmt   = now.strftime("%d/%m/%Y")
     prefixo    = "[TESTE] " if modo_teste else ""
-    return (
-        f"{prefixo}✅ Ponto batido com sucesso!\n"
-        f"📅 {dia_semana}, {data_fmt} às {hora_label}.\n\n"
-        f"Registro automático via bruno.ponto v{APP_VERSION} 🟢"
-    )
+    tmpl       = template.strip() or _MSG_PADRAO
+    try:
+        corpo = tmpl.format(dia_semana=dia_semana, data=data_fmt,
+                            hora=hora_label, versao=APP_VERSION)
+    except KeyError:
+        corpo = tmpl
+    return f"{prefixo}{corpo}"
 
 def executar_acao(cfg: dict, app_ref, hora_label: str):
     """Executa a ação de ponto (modo real ou teste)."""
@@ -351,7 +360,8 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                         pass
                     _driver = None
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=True))
-                app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=True))
+                app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=True,
+                    template=cfg.get("telegram_mensagem", "")))
             else:
                 ok_msg = f"✓ Ponto registrado às {hora_label}"
                 log.info(ok_msg)
@@ -364,7 +374,8 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                         pass
                     _driver = None
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=False))
-                app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=False))
+                app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=False,
+                    template=cfg.get("telegram_mensagem", "")))
 
         except Exception as e:
             err = f"Erro ao registrar: {e}"
@@ -1004,6 +1015,25 @@ class BrunoPontoApp:
                          show="●", toggle=True)
         self._grid_input(tg_g, "Chat ID", "telegram_chat_id_var",
                          self.cfg.get("telegram_chat_id", ""), r=1, c=0)
+
+        # Mensagem personalizada
+        tk.Label(self._telegram_frame, text="Mensagem",
+                 font=("Consolas", 9), bg=C["section_bg"],
+                 fg=C["muted"]).pack(anchor="w")
+        self.telegram_msg_text = tk.Text(self._telegram_frame,
+                                         font=("Consolas", 10),
+                                         bg=C["input_bg"], fg=C["green"],
+                                         insertbackground=C["green"],
+                                         relief="flat", bd=4,
+                                         height=5, wrap="word")
+        self.telegram_msg_text.insert("1.0",
+            self.cfg.get("telegram_mensagem", _MSG_PADRAO))
+        self.telegram_msg_text.pack(fill="x", pady=(2, 4))
+        tk.Label(self._telegram_frame,
+                 text="variáveis: {dia_semana}  {data}  {hora}  {versao}",
+                 font=("Consolas", 8), bg=C["section_bg"],
+                 fg=C["muted"]).pack(anchor="w", pady=(0, 4))
+
         self._mk_btn(self._telegram_frame, "Testar Telegram",
                      self._testar_telegram).pack(anchor="e", pady=(0, 6))
 
@@ -1226,44 +1256,59 @@ class BrunoPontoApp:
             row = tk.Frame(self._sched_inner, bg=C["section_bg"],
                            highlightbackground=C["border"], highlightthickness=1)
             row.pack(fill="x", pady=1)
+            row.columnconfigure(1, weight=1)
 
-            tk.Button(row, text="🗑",
-                      bg=C["section_bg"], fg=C["red"],
-                      font=("Segoe UI Emoji", 11), relief="flat", cursor="hand2",
-                      activebackground=C["section_bg"], activeforeground=C["red"],
-                      command=lambda idx=i: self._remover_schedule(idx),
-                      padx=6).pack(side="right")
+            # coluna 0: botão ●
+            tk.Button(row, text="●",
+                      font=("Consolas", 13), relief="flat", cursor="hand2",
+                      bg=C["section_bg"], fg=cor,
+                      activebackground=C["section_bg"],
+                      activeforeground=C["green"] if ativo else C["muted"],
+                      command=lambda idx=i: self._toggle_schedule_ativo(idx),
+                      padx=6, pady=0).grid(row=0, column=0, rowspan=2, sticky="ns")
 
-            tk.Button(row, text="✏",
+            # coluna 1: nome (linha 0) + badges (linha 1)
+            tk.Label(row, text=s["nome"], font=("Consolas", 10, "bold"),
+                     bg=C["section_bg"], fg=cor,
+                     anchor="w").grid(row=0, column=1, sticky="w", pady=(4, 0))
+
+            badges = tk.Frame(row, bg=C["section_bg"])
+            badges.grid(row=1, column=1, sticky="w", pady=(0, 4))
+
+            horas_str = " | ".join(s.get("horarios", []))
+            tk.Label(badges, text=f" {horas_str} ",
+                     font=("Consolas", 9),
+                     bg=C["input_bg"], fg=C["text"],
+                     padx=4, pady=1).pack(side="left", padx=(0, 4))
+
+            dias_str = " ".join(DIAS_ABR[d] for d in sorted(s.get("dias", [])))
+            tk.Label(badges, text=f" {dias_str} ",
+                     font=("Consolas", 8),
+                     bg=C["input_bg"],
+                     fg=C["amber"] if s.get("data_fim") else C["muted"],
+                     padx=2, pady=1).pack(side="left", padx=(0, 4))
+
+            if s.get("data_fim"):
+                fim_br = EditarScheduleWindow._iso_to_br(s["data_fim"])
+                tk.Label(badges, text=f"até {fim_br}",
+                         font=("Consolas", 8), bg=C["section_bg"],
+                         fg=C["amber"]).pack(side="left")
+
+            # coluna 2: botões ação
+            btns = tk.Frame(row, bg=C["section_bg"])
+            btns.grid(row=0, column=2, rowspan=2, sticky="ns", padx=(4, 2))
+            tk.Button(btns, text="✏",
                       bg=C["section_bg"], fg=C["muted"],
                       font=("Segoe UI Emoji", 11), relief="flat", cursor="hand2",
                       activebackground=C["section_bg"], activeforeground=C["green"],
                       command=lambda idx=i: self._abrir_editar_schedule(idx),
-                      padx=6).pack(side="right")
-
-            tk.Label(row, text="●", font=("Consolas", 8),
-                     bg=C["section_bg"], fg=cor, padx=6).pack(side="left")
-
-            tk.Label(row, text=s["nome"], font=("Consolas", 10, "bold"),
-                     bg=C["section_bg"], fg=cor).pack(side="left")
-
-            horas_str = " | ".join(s.get("horarios", []))
-            tk.Label(row, text=f"  {horas_str}  ",
-                     font=("Consolas", 9),
-                     bg=C["input_bg"], fg=C["text"],
-                     padx=4, pady=1).pack(side="left", padx=4)
-
-            dias_str = " ".join(DIAS_ABR[d] for d in sorted(s.get("dias", [])))
-            tk.Label(row, text=f" {dias_str} ",
-                     font=("Consolas", 8),
-                     bg=C["input_bg"], fg=C["amber"] if s.get("data_fim") else C["muted"],
-                     padx=2, pady=1).pack(side="left", padx=2)
-
-            if s.get("data_fim"):
-                fim_br = EditarScheduleWindow._iso_to_br(s["data_fim"])
-                tk.Label(row, text=f"até {fim_br}",
-                         font=("Consolas", 8), bg=C["section_bg"],
-                         fg=C["amber"]).pack(side="left")
+                      padx=4).pack(side="left")
+            tk.Button(btns, text="🗑",
+                      bg=C["section_bg"], fg=C["red"],
+                      font=("Segoe UI Emoji", 11), relief="flat", cursor="hand2",
+                      activebackground=C["section_bg"], activeforeground=C["red"],
+                      command=lambda idx=i: self._remover_schedule(idx),
+                      padx=4).pack(side="left")
 
     # ── Lógica de UI ─────────────────────────────────
 
@@ -1272,16 +1317,19 @@ class BrunoPontoApp:
         self.cfg["pin"]               = self.pin_var.get().strip()
         self.cfg["telegram_token"]    = self.telegram_token_var.get().strip()
         self.cfg["telegram_chat_id"]  = self.telegram_chat_id_var.get().strip()
+        self.cfg["telegram_mensagem"] = self.telegram_msg_text.get("1.0", "end-1c").strip()
         save_config(self.cfg)
         rebuild_schedule(self.cfg, self)
         self.add_log("Credenciais salvas.", "ok")
         messagebox.showinfo(APP_NAME, "Credenciais salvas com sucesso!", parent=self.root)
 
     def _testar_telegram(self):
-        self.cfg["telegram_token"]   = self.telegram_token_var.get().strip()
-        self.cfg["telegram_chat_id"] = self.telegram_chat_id_var.get().strip()
+        self.cfg["telegram_token"]    = self.telegram_token_var.get().strip()
+        self.cfg["telegram_chat_id"]  = self.telegram_chat_id_var.get().strip()
+        self.cfg["telegram_mensagem"] = self.telegram_msg_text.get("1.0", "end-1c").strip()
         save_config(self.cfg)
-        self._enviar_telegram("✅ Bruno Ponto: conexão com Telegram funcionando!")
+        self._enviar_telegram(_msg_telegram("HH:MM", modo_teste=False,
+            template=self.cfg.get("telegram_mensagem", "")))
 
     def _toggle_modo(self):
         self.cfg["modo_teste"] = self.modo_var.get()
@@ -1342,6 +1390,16 @@ class BrunoPontoApp:
         self._render_schedules()
         self._atualizar_prox()
         self.add_log(f"Schedule '{entry['nome']}' {acao}.", "ok")
+
+    def _toggle_schedule_ativo(self, idx):
+        s = self.cfg.get("schedules", [])[idx]
+        s["ativo"] = not s.get("ativo", True)
+        save_config(self.cfg)
+        rebuild_schedule(self.cfg, self)
+        self._render_schedules()
+        self._atualizar_prox()
+        estado = "habilitado" if s["ativo"] else "desabilitado"
+        self.add_log(f"Schedule '{s['nome']}' {estado}.", "ok" if s["ativo"] else "info")
 
     def _remover_schedule(self, idx):
         schedules = self.cfg.get("schedules", [])
@@ -1406,7 +1464,9 @@ class BrunoPontoApp:
         self.root.after(30_000, self._atualizar_prox)
 
     def _tick_relogio(self):
-        agora = datetime.now().strftime("%A, %d/%m/%Y  %H:%M:%S")
+        now   = datetime.now()
+        dia   = DIAS_PT[now.weekday()]
+        agora = f"{dia}, {now.strftime('%d/%m/%Y  %H:%M:%S')}"
         self.relogio_lbl.config(text=agora)
         self.root.after(1000, self._tick_relogio)
 
