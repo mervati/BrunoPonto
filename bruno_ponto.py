@@ -80,6 +80,9 @@ DEFAULT_CONFIG = {
     "telegram_mensagem":  _MSG_PADRAO,
     "schedules":          [],
     "modo_teste":         True,
+    "watchdog_ativo":     True,
+    "watchdog_horas":     2,
+    "last_heartbeat":     None,
 }
 
 CORES = {
@@ -333,6 +336,7 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
             "ERRO: selenium não instalado.  (pip install selenium)", "erro"))
         return
 
+    app_ref._update_heartbeat()
     prefixo = "[TESTE] " if modo_teste else ""
     msg = f"{prefixo}Abrindo navegador para registrar ponto às {hora_label} ({agora})..."
     log.info(msg)
@@ -927,6 +931,11 @@ class BrunoPontoApp:
             target=self._run_scheduler, daemon=True
         )
         self._scheduler_thread.start()
+        self._watchdog_thread = threading.Thread(
+            target=self._watchdog_loop, daemon=True
+        )
+        self._watchdog_thread.start()
+        self._update_heartbeat()
         self._atualizar_prox()
 
     def _center(self):
@@ -1099,6 +1108,42 @@ class BrunoPontoApp:
                        activebackground=C["section_bg"],
                        activeforeground=C["green"],
                        command=self._toggle_modo).pack(anchor="w")
+
+        tk.Frame(modo_card, bg=C["border"], height=1).pack(fill="x", pady=(8, 4))
+        tk.Label(modo_card, text="// watchdog", font=("Consolas", 8),
+                 bg=C["section_bg"], fg=C["green"]).pack(anchor="w")
+
+        wd_row = tk.Frame(modo_card, bg=C["section_bg"])
+        wd_row.pack(anchor="w", pady=(2, 0))
+        self.watchdog_var = tk.BooleanVar(value=self.cfg.get("watchdog_ativo", True))
+        tk.Checkbutton(wd_row, variable=self.watchdog_var,
+                       text=" ativo",
+                       font=("Consolas", 9),
+                       bg=C["section_bg"], fg=C["muted"],
+                       selectcolor=C["input_bg"],
+                       activebackground=C["section_bg"],
+                       activeforeground=C["green"],
+                       command=self._toggle_watchdog).pack(side="left")
+
+        self.watchdog_horas_var = tk.StringVar(
+            value=str(self.cfg.get("watchdog_horas", 2)))
+        tk.Entry(wd_row, textvariable=self.watchdog_horas_var,
+                 font=("Consolas", 9), width=3,
+                 bg=C["input_bg"], fg=C["green"],
+                 insertbackground=C["green"],
+                 relief="flat", bd=2,
+                 justify="center").pack(side="left", padx=(6, 2))
+        tk.Label(wd_row, text="h", font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
+
+        last = self.cfg.get("last_heartbeat")
+        last_txt = datetime.fromisoformat(last).strftime("%d/%m/%Y %H:%M") if last else "—"
+        self._wd_last_lbl = tk.Label(modo_card, text=f"último: {last_txt}",
+                                      font=("Consolas", 8),
+                                      bg=C["section_bg"], fg=C["muted"])
+        self._wd_last_lbl.pack(anchor="w", pady=(2, 6))
+
+        self.watchdog_horas_var.trace_add("write", self._salvar_watchdog)
 
         stat_card = tk.Frame(ms, bg=C["section_bg"],
                              highlightbackground=C["green"], highlightthickness=1)
@@ -1348,6 +1393,21 @@ class BrunoPontoApp:
         modo = "TESTE" if self.cfg["modo_teste"] else "REAL"
         self.add_log(f"Modo alterado para: {modo}", "info")
 
+    def _toggle_watchdog(self):
+        self.cfg["watchdog_ativo"] = self.watchdog_var.get()
+        save_config(self.cfg)
+        estado = "ativado" if self.cfg["watchdog_ativo"] else "desativado"
+        self.add_log(f"Watchdog {estado}.", "ok" if self.cfg["watchdog_ativo"] else "info")
+
+    def _salvar_watchdog(self, *_):
+        try:
+            horas = int(self.watchdog_horas_var.get())
+            if horas > 0:
+                self.cfg["watchdog_horas"] = horas
+                save_config(self.cfg)
+        except ValueError:
+            pass
+
     def _atualizar_banner(self):
         C = CORES
         if self.cfg["modo_teste"]:
@@ -1484,9 +1544,54 @@ class BrunoPontoApp:
 
     def _run_scheduler(self):
         rebuild_schedule(self.cfg, self)
+        _hb_counter = 0
         while True:
             schedule.run_pending()
+            _hb_counter += 1
+            if _hb_counter >= 30:   # 30 × 10s = 5 min
+                _hb_counter = 0
+                self._update_heartbeat()
             time.sleep(10)
+
+    # ── Watchdog ─────────────────────────────────────
+
+    def _update_heartbeat(self):
+        self.cfg["last_heartbeat"] = datetime.now().isoformat()
+        save_config(self.cfg)
+        if hasattr(self, "_wd_last_lbl"):
+            ts = datetime.now().strftime("%d/%m/%Y %H:%M")
+            self.root.after(0, lambda: self._wd_last_lbl.config(text=f"último: {ts}"))
+
+    def _watchdog_loop(self):
+        for _ in range(360):          # aguarda 1h antes do primeiro check
+            time.sleep(10)
+        while True:
+            self._check_watchdog()
+            for _ in range(180):      # checa a cada 30min (180 × 10s)
+                time.sleep(10)
+
+    def _check_watchdog(self):
+        if not self.cfg.get("watchdog_ativo", True):
+            return
+        last = self.cfg.get("last_heartbeat")
+        if not last:
+            return
+        try:
+            dt    = datetime.fromisoformat(last)
+            horas = int(self.cfg.get("watchdog_horas", 2))
+            diff  = (datetime.now() - dt).total_seconds()
+            if diff > horas * 3600:
+                ts  = dt.strftime("%d/%m/%Y %H:%M")
+                msg = (
+                    f"⚠️ bruno.ponto pode ter parado!\n"
+                    f"Último heartbeat: {ts}\n"
+                    f"Sem atividade há mais de {horas}h.\n\n"
+                    f"Verifique se o programa está rodando 🔴"
+                )
+                self._enviar_telegram(msg)
+                log.warning(f"Watchdog: sem heartbeat há +{horas}h (último: {ts})")
+        except Exception as e:
+            log.error(f"Watchdog erro: {e}")
 
     # ── Bandeja do sistema ────────────────────────────
 
