@@ -80,9 +80,11 @@ DEFAULT_CONFIG = {
     "telegram_mensagem":  _MSG_PADRAO,
     "schedules":          [],
     "modo_teste":         True,
-    "watchdog_ativo":     True,
-    "watchdog_horas":     2,
-    "last_heartbeat":     None,
+    "watchdog_ativo":       True,
+    "watchdog_horas":       2,
+    "last_heartbeat":       None,
+    "alerta_demora_ativo":  True,
+    "alerta_demora_seg":    60,
 }
 
 CORES = {
@@ -345,12 +347,30 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
     def _registrar():
         global _driver
         try:
+            t_inicio = time.time()
             with _driver_lock:
                 if _driver is None or not _driver_ativo(_driver):
                     _driver = _criar_driver()
 
                 _driver.get(URL_PONTO)
                 _preencher_formulario(_driver, cfg, modo_teste=modo_teste)
+
+            duracao = time.time() - t_inicio
+            limite  = int(cfg.get("alerta_demora_seg", 60))
+            if cfg.get("alerta_demora_ativo", True) and duracao > limite:
+                now        = datetime.now()
+                dia_semana = DIAS_PT[now.weekday()]
+                data_fmt   = now.strftime("%d/%m/%Y")
+                msg_demora = (
+                    f"⏱️ Batida demorou mais que o esperado!\n"
+                    f"📅 {dia_semana}, {data_fmt} às {hora_label}.\n\n"
+                    f"Duração: {int(duracao)}s (limite: {limite}s)\n"
+                    f"O ponto pode ter sido registrado com atraso 🟡"
+                )
+                app_ref._enviar_telegram(msg_demora)
+                aviso = f"Atenção: execução demorou {int(duracao)}s (limite {limite}s)"
+                log.warning(aviso)
+                app_ref.root.after(0, lambda: app_ref.add_log(aviso, "teste"))
 
             if modo_teste:
                 ok_msg = f"[TESTE] Navegador aberto e campos preenchidos — clique NÃO executado ({hora_label})"
@@ -1145,6 +1165,33 @@ class BrunoPontoApp:
 
         self.watchdog_horas_var.trace_add("write", self._salvar_watchdog)
 
+        tk.Frame(modo_card, bg=C["border"], height=1).pack(fill="x", pady=(4, 4))
+        tk.Label(modo_card, text="// demora", font=("Consolas", 8),
+                 bg=C["section_bg"], fg=C["green"]).pack(anchor="w")
+
+        dm_row = tk.Frame(modo_card, bg=C["section_bg"])
+        dm_row.pack(anchor="w", pady=(2, 6))
+        self.demora_var = tk.BooleanVar(value=self.cfg.get("alerta_demora_ativo", True))
+        tk.Checkbutton(dm_row, variable=self.demora_var,
+                       text=" ativo",
+                       font=("Consolas", 9),
+                       bg=C["section_bg"], fg=C["muted"],
+                       selectcolor=C["input_bg"],
+                       activebackground=C["section_bg"],
+                       activeforeground=C["green"],
+                       command=self._toggle_demora).pack(side="left")
+        self.demora_seg_var = tk.StringVar(
+            value=str(self.cfg.get("alerta_demora_seg", 60)))
+        tk.Entry(dm_row, textvariable=self.demora_seg_var,
+                 font=("Consolas", 9), width=4,
+                 bg=C["input_bg"], fg=C["green"],
+                 insertbackground=C["green"],
+                 relief="flat", bd=2,
+                 justify="center").pack(side="left", padx=(6, 2))
+        tk.Label(dm_row, text="s", font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
+        self.demora_seg_var.trace_add("write", self._salvar_demora)
+
         stat_card = tk.Frame(ms, bg=C["section_bg"],
                              highlightbackground=C["green"], highlightthickness=1)
         stat_card.grid(row=0, column=1, sticky="nsew", ipady=8, ipadx=10)
@@ -1404,6 +1451,21 @@ class BrunoPontoApp:
             horas = int(self.watchdog_horas_var.get())
             if horas > 0:
                 self.cfg["watchdog_horas"] = horas
+                save_config(self.cfg)
+        except ValueError:
+            pass
+
+    def _toggle_demora(self):
+        self.cfg["alerta_demora_ativo"] = self.demora_var.get()
+        save_config(self.cfg)
+        estado = "ativado" if self.cfg["alerta_demora_ativo"] else "desativado"
+        self.add_log(f"Alerta de demora {estado}.", "ok" if self.cfg["alerta_demora_ativo"] else "info")
+
+    def _salvar_demora(self, *_):
+        try:
+            seg = int(self.demora_seg_var.get())
+            if seg > 0:
+                self.cfg["alerta_demora_seg"] = seg
                 save_config(self.cfg)
         except ValueError:
             pass
