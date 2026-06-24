@@ -27,6 +27,12 @@ from datetime import datetime, timedelta
 import ctypes
 
 try:
+    import winreg
+    HAS_WINREG = True
+except ImportError:
+    HAS_WINREG = False
+
+try:
     import pystray
     from PIL import Image, ImageDraw
     HAS_TRAY = True
@@ -161,6 +167,41 @@ def load_config():
 def save_config(cfg):
     with open(CFG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+# ──────────────────────────────────────────────────────
+#  AUTOSTART (registro do Windows)
+# ──────────────────────────────────────────────────────
+_REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_REG_KEY  = "BrunoPonto"
+
+def _get_autostart() -> bool:
+    if not HAS_WINREG:
+        return False
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _REG_PATH, 0, winreg.KEY_READ)
+        winreg.QueryValueEx(key, _REG_KEY)
+        winreg.CloseKey(key)
+        return True
+    except Exception:
+        return False
+
+def _set_autostart(enable: bool):
+    if not HAS_WINREG:
+        return
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _REG_PATH, 0, winreg.KEY_SET_VALUE)
+        if enable:
+            winreg.SetValueEx(key, _REG_KEY, 0, winreg.REG_SZ,
+                              f'"{sys.executable}" --minimized')
+        else:
+            try:
+                winreg.DeleteValue(key, _REG_KEY)
+            except FileNotFoundError:
+                pass
+        winreg.CloseKey(key)
+    except Exception as e:
+        log.error(f"Autostart erro: {e}")
 
 
 # ──────────────────────────────────────────────────────
@@ -1248,6 +1289,26 @@ class BrunoPontoApp:
         canvas.bind_all("<MouseWheel>",
             lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
 
+        # Sistema
+        self._section_info(body, "// sistema", padx=20,
+            tooltip="Configurações de inicialização do sistema.")
+        sys_card = self._card(body)
+        sys_inner = tk.Frame(sys_card, bg=C["section_bg"])
+        sys_inner.pack(fill="x", padx=10, pady=(8, 10))
+        self.autostart_var = tk.BooleanVar(value=_get_autostart())
+        tk.Checkbutton(sys_inner, variable=self.autostart_var,
+                       text=" Iniciar com o Windows (minimizado na bandeja)",
+                       font=("Consolas", 10),
+                       bg=C["section_bg"], fg=C["text"],
+                       selectcolor=C["input_bg"],
+                       activebackground=C["section_bg"],
+                       activeforeground=C["green"],
+                       command=self._toggle_autostart).pack(anchor="w")
+        self._field_info(sys_inner,
+            "Quando ativo, o BrunoPonto inicia automaticamente com o Windows "
+            "já minimizado na bandeja do sistema.\n\n"
+            "Requer que o executável esteja em sua localização definitiva.").pack(anchor="w", pady=(2, 0))
+
         # Telegram
         self._section_info(body, "// telegram", padx=20,
             tooltip="Configurações do bot do Telegram para receber notificações automáticas após cada batida de ponto.")
@@ -1683,6 +1744,12 @@ class BrunoPontoApp:
         self._atualizar_banner()
         modo = "TESTE" if self.cfg["modo_teste"] else "REAL"
         self.add_log(f"Modo alterado para: {modo}", "info")
+
+    def _toggle_autostart(self):
+        enable = self.autostart_var.get()
+        _set_autostart(enable)
+        estado = "ativado" if enable else "desativado"
+        self.add_log(f"Iniciar com Windows {estado}.", "ok" if enable else "info")
 
     def _toggle_watchdog(self):
         self.cfg["watchdog_ativo"] = self.watchdog_var.get()
