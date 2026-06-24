@@ -85,12 +85,9 @@ DEFAULT_CONFIG = {
     "last_heartbeat":       None,
     "alerta_demora_ativo":  True,
     "alerta_demora_seg":    60,
-    "feriados":             [],               # lista de "YYYY-MM-DD"
-    "feriados_pular":       True,             # pular batida em feriados
     "ferias_ativo":         False,
     "ferias_inicio":        None,             # "YYYY-MM-DD"
     "ferias_fim":           None,             # "YYYY-MM-DD"
-    "dst_offset_horas":     0,               # -2 a +2; aplicado a todos os horários agendados
 }
 
 CORES = {
@@ -344,12 +341,6 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
             "ERRO: selenium não instalado.  (pip install selenium)", "erro"))
         return
 
-    hoje_str = datetime.now().strftime("%Y-%m-%d")
-    if cfg.get("feriados_pular", True) and hoje_str in cfg.get("feriados", []):
-        msg_fer = f"Feriado hoje ({datetime.now().strftime('%d/%m/%Y')}) — batida ignorada."
-        log.info(msg_fer)
-        app_ref.root.after(0, lambda: app_ref.add_log(msg_fer, "info"))
-        return
     if cfg.get("ferias_ativo", False):
         inicio = cfg.get("ferias_inicio")
         fim    = cfg.get("ferias_fim")
@@ -470,19 +461,6 @@ def _mostrar_aviso(app_ref, hora_label: str):
         AvisoWindow(app_ref.root, hora_label)
     app_ref.root.after(0, _abrir)
 
-def _buscar_feriados_brasil(ano: int) -> list:
-    """Busca feriados nacionais via BrasilAPI. Retorna lista de 'YYYY-MM-DD'."""
-    try:
-        url = f"https://brasilapi.com.br/api/feriados/v1/{ano}"
-        req = urllib.request.Request(url, headers={"User-Agent": "BrunoPonto"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read().decode())
-        return [item["date"] for item in data if "date" in item]
-    except Exception as e:
-        log.error(f"Erro ao buscar feriados: {e}")
-        return []
-
-
 def rebuild_schedule(cfg: dict, app_ref):
     schedule.clear()
     hoje = datetime.now().date()
@@ -504,18 +482,14 @@ def rebuild_schedule(cfg: dict, app_ref):
                     continue
             except Exception:
                 pass
-        dst = int(cfg.get("dst_offset_horas", 0))
         for hora in s.get("horarios", []):
-            h, m    = map(int, hora.split(":"))
-            total   = (h * 60 + m + dst * 60) % 1440
-            hora_ag = f"{total // 60:02d}:{total % 60:02d}"
             for dia in s.get("dias", []):
                 nome_dia = DIAS_MAP.get(dia)
                 if nome_dia:
-                    getattr(schedule.every(), nome_dia).at(hora_ag).do(
+                    getattr(schedule.every(), nome_dia).at(hora).do(
                         executar_acao, cfg=cfg, app_ref=app_ref, hora_label=hora
                     )
-                    aviso_hora = _cinco_min_antes(hora_ag)
+                    aviso_hora = _cinco_min_antes(hora)
                     getattr(schedule.every(), nome_dia).at(aviso_hora).do(
                         _mostrar_aviso, app_ref=app_ref, hora_label=hora
                     )
@@ -1383,41 +1357,6 @@ class BrunoPontoApp:
             "Tempo máximo em segundos que o selenium pode demorar para abrir o navegador e registrar o ponto.\n\nSe ultrapassar, você recebe alerta no Telegram.\nPadrão: 60s.").pack(side="left", padx=(6, 0))
         self.demora_seg_var.trace_add("write", self._salvar_demora)
 
-        # ── Feriados ──────────────────────────────────────────
-        self._section_info(body, "// feriados", padx=20,
-            tooltip="Importa automaticamente os feriados nacionais do Brasil.\nNos dias marcados como feriado, todas as batidas são ignoradas.")
-        fer_card = self._card(body)
-        fer_inner = tk.Frame(fer_card, bg=C["section_bg"])
-        fer_inner.pack(fill="x", padx=10, pady=(8, 6))
-
-        fer_top = tk.Frame(fer_inner, bg=C["section_bg"])
-        fer_top.pack(fill="x")
-        self.feriados_pular_var = tk.BooleanVar(value=self.cfg.get("feriados_pular", True))
-        tk.Checkbutton(fer_top, variable=self.feriados_pular_var,
-                       text=" Pular batidas em feriados",
-                       font=("Consolas", 10),
-                       bg=C["section_bg"], fg=C["text"],
-                       selectcolor=C["input_bg"],
-                       activebackground=C["section_bg"],
-                       activeforeground=C["green"],
-                       command=self._toggle_feriados_pular).pack(side="left")
-
-        fer_btns = tk.Frame(fer_inner, bg=C["section_bg"])
-        fer_btns.pack(fill="x", pady=(8, 0))
-        self._mk_btn(fer_btns, "Importar feriados do Brasil",
-                     self._importar_feriados).pack(side="left")
-        self._field_info(fer_btns,
-            "Busca os feriados nacionais do ano atual via BrasilAPI.\nRequer conexão com a internet.").pack(side="left", padx=(6, 0))
-
-        self._fer_status_lbl = tk.Label(fer_inner, text="",
-                                         font=("Consolas", 8),
-                                         bg=C["section_bg"], fg=C["muted"])
-        self._fer_status_lbl.pack(anchor="w", pady=(4, 0))
-
-        feriados = self.cfg.get("feriados", [])
-        contagem = f"{len(feriados)} feriado(s) cadastrado(s)" if feriados else "nenhum feriado cadastrado"
-        self._fer_status_lbl.config(text=contagem)
-
         # ── Férias ────────────────────────────────────────────
         self._section_info(body, "// férias", padx=20,
             tooltip="Suspende todas as batidas durante o período de férias.\nNenhum schedule será executado entre as datas configuradas.")
@@ -1468,34 +1407,6 @@ class BrunoPontoApp:
 
         self._mk_btn(vac_inner, "Salvar férias", self._salvar_ferias,
                      solid=True).pack(anchor="e", pady=(10, 0))
-
-        # ── Horário de verão ──────────────────────────────────
-        self._section_info(body, "// horário de verão", padx=20,
-            tooltip="Aplica um offset de horas a todos os horários agendados.\nUse +1 durante o horário de verão para adiantar automaticamente todas as batidas.\n\n0 = sem ajuste (padrão)")
-        dst_card = self._card(body)
-        dst_inner = tk.Frame(dst_card, bg=C["section_bg"])
-        dst_inner.pack(fill="x", padx=10, pady=(8, 10))
-
-        dst_row = tk.Frame(dst_inner, bg=C["section_bg"])
-        dst_row.pack(anchor="w")
-        tk.Label(dst_row, text="Offset:", font=("Consolas", 9),
-                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
-        self.dst_var = tk.StringVar(value=str(self.cfg.get("dst_offset_horas", 0)))
-        tk.Spinbox(dst_row, textvariable=self.dst_var,
-                   from_=-2, to=2, increment=1, width=4,
-                   font=("Consolas", 10),
-                   bg=C["input_bg"], fg=C["green"],
-                   buttonbackground=C["section_bg"],
-                   relief="flat", bd=3,
-                   justify="center",
-                   command=self._salvar_dst).pack(side="left", padx=(6, 4))
-        tk.Label(dst_row, text="horas  (0 = sem ajuste)",
-                 font=("Consolas", 9),
-                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
-        self._field_info(dst_row,
-            "Desloca todos os horários agendados pelo valor informado.\n\nExemplo: se o agendamento é 08:00 e o offset é +1, a batida ocorrerá às 09:00.\n\nUse quando houver mudança de horário de verão ou fuso horário.\nPadrão: 0 (sem ajuste).").pack(side="left", padx=(6, 0))
-
-        self.dst_var.trace_add("write", lambda *_: self._salvar_dst())
 
     def _section(self, parent, titulo, padx=0):
         f = tk.Frame(parent, bg=CORES["bg"])
@@ -1769,32 +1680,6 @@ class BrunoPontoApp:
         except ValueError:
             pass
 
-    # ── Feriados ──────────────────────────────────────────────
-
-    def _toggle_feriados_pular(self):
-        self.cfg["feriados_pular"] = self.feriados_pular_var.get()
-        save_config(self.cfg)
-        estado = "ativado" if self.cfg["feriados_pular"] else "desativado"
-        self.add_log(f"Pular feriados {estado}.", "ok" if self.cfg["feriados_pular"] else "info")
-
-    def _importar_feriados(self):
-        ano = datetime.now().year
-        self._fer_status_lbl.config(text=f"Importando feriados de {ano}...")
-        def _buscar():
-            feriados = _buscar_feriados_brasil(ano)
-            # também importa o próximo ano se estivermos no último trimestre
-            if datetime.now().month >= 10:
-                feriados += _buscar_feriados_brasil(ano + 1)
-            feriados = sorted(set(feriados))
-            self.cfg["feriados"] = feriados
-            save_config(self.cfg)
-            contagem = len(feriados)
-            msg = f"{contagem} feriado(s) importado(s)."
-            log.info(msg)
-            self.root.after(0, lambda: self._fer_status_lbl.config(text=msg))
-            self.root.after(0, lambda: self.add_log(msg, "ok"))
-        threading.Thread(target=_buscar, daemon=True).start()
-
     # ── Férias ────────────────────────────────────────────────
 
     def _toggle_ferias(self):
@@ -1818,19 +1703,6 @@ class BrunoPontoApp:
         save_config(self.cfg)
         rebuild_schedule(self.cfg, self)
         self.add_log("Configurações de férias salvas.", "ok")
-
-    # ── Horário de verão ──────────────────────────────────────
-
-    def _salvar_dst(self):
-        try:
-            offset = int(self.dst_var.get())
-            if -2 <= offset <= 2:
-                self.cfg["dst_offset_horas"] = offset
-                save_config(self.cfg)
-                rebuild_schedule(self.cfg, self)
-                self.add_log(f"Offset de horário: {offset:+d}h aplicado.", "ok")
-        except ValueError:
-            pass
 
     def _atualizar_banner(self):
         C = CORES
