@@ -94,8 +94,6 @@ DEFAULT_CONFIG = {
     "ferias_ativo":         False,
     "ferias_inicio":        None,             # "YYYY-MM-DD"
     "ferias_fim":           None,             # "YYYY-MM-DD"
-    "geo_lat":              "",               # latitude manual (vazio = detectar pelo IP)
-    "geo_lng":              "",               # longitude manual
 }
 
 CORES = {
@@ -335,29 +333,7 @@ def _preencher_formulario(driver, cfg: dict, modo_teste: bool = False):
 
 # ──────────────────────────────────────────────────────
 #  LÓGICA DE PONTO
-# ──────────────────────────────────────────────────────
-def _get_coordenadas_ip():
-    """Obtém lat/lng + cidade via IP geolocation. Retorna (lat, lng, label)."""
-    try:
-        req = urllib.request.Request(
-            "http://ip-api.com/json/",
-            headers={"User-Agent": "BrunoPonto"}
-        )
-        with urllib.request.urlopen(req, timeout=5) as r:
-            data = json.loads(r.read().decode())
-        if data.get("status") == "success":
-            lat    = float(data["lat"])
-            lng    = float(data["lon"])
-            cidade = data.get("city", "")
-            pais   = data.get("countryCode", "")
-            label  = f"{cidade}, {pais}" if cidade else ""
-            return lat, lng, label
-    except Exception as e:
-        log.warning(f"IP geolocation: {e}")
-    return None, None, ""
-
-
-def _mover_mouse_z():
+# ──────────────────────────────────────────────────────def _mover_mouse_z():
     """Move o mouse em Z sem pyautogui — usa ctypes no Windows."""
     try:
         if sys.platform == "win32":
@@ -435,37 +411,6 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
             with _driver_lock:
                 if _driver is None or not _driver_ativo(_driver):
                     _driver = _criar_driver()
-
-                # Geolocalização — coordenadas manuais têm prioridade
-                lat_cfg = str(cfg.get("geo_lat", "")).strip()
-                lng_cfg = str(cfg.get("geo_lng", "")).strip()
-                if lat_cfg and lng_cfg:
-                    try:
-                        lat   = float(lat_cfg)
-                        lng   = float(lng_cfg)
-                        local = "manual"
-                    except ValueError:
-                        lat, lng, local = _get_coordenadas_ip()
-                else:
-                    lat, lng, local = _get_coordenadas_ip()
-                if lat and lng:
-                    try:
-                        _driver.execute_cdp_cmd(
-                            "Emulation.setGeolocationOverride",
-                            {"latitude": lat, "longitude": lng, "accuracy": 50}
-                        )
-                        geo_txt = (f"{local} ({lat:.4f}, {lng:.4f})"
-                                   if local else f"{lat:.4f}, {lng:.4f}")
-                        log.info(f"Geolocalização: {geo_txt}")
-                        app_ref.root.after(0, lambda t=geo_txt: app_ref.add_log(
-                            f"Localização: {t}", "ok"))
-                    except Exception as e:
-                        log.warning(f"Geolocalização CDP: {e}")
-                        app_ref.root.after(0, lambda: app_ref.add_log(
-                            "Localização: não aplicada (CDP indisponível)", "info"))
-                else:
-                    app_ref.root.after(0, lambda: app_ref.add_log(
-                        "Localização: não disponível (sem resposta do IP)", "info"))
 
                 _driver.get(URL_PONTO)
                 _preencher_formulario(_driver, cfg, modo_teste=modo_teste)
@@ -1506,48 +1451,6 @@ class BrunoPontoApp:
             "Tempo máximo em segundos que o selenium pode demorar para abrir o navegador e registrar o ponto.\n\nSe ultrapassar, você recebe alerta no Telegram.\nPadrão: 60s.").pack(side="left", padx=(6, 0))
         self.demora_seg_var.trace_add("write", self._salvar_demora)
 
-        # ── Localização ───────────────────────────────────────
-        self._section_info(body, "// localização", padx=20,
-            tooltip="Coordenadas GPS usadas ao registrar o ponto.\nSe preenchidas, têm prioridade sobre a detecção automática por IP.\n\nDica: abra o Google Maps, clique com o botão direito no local e copie as coordenadas.")
-        geo_card = self._card(body)
-        geo_inner = tk.Frame(geo_card, bg=C["section_bg"])
-        geo_inner.pack(fill="x", padx=10, pady=(8, 10))
-
-        geo_row = tk.Frame(geo_inner, bg=C["section_bg"])
-        geo_row.pack(anchor="w")
-
-        tk.Label(geo_row, text="Latitude:", font=("Consolas", 9),
-                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
-        self.geo_lat_var = tk.StringVar(value=str(self.cfg.get("geo_lat", "")))
-        tk.Entry(geo_row, textvariable=self.geo_lat_var,
-                 font=("Consolas", 10), width=18,
-                 bg=C["input_bg"], fg=C["green"],
-                 insertbackground=C["green"],
-                 relief="flat", bd=3).pack(side="left", padx=(6, 16))
-
-        tk.Label(geo_row, text="Longitude:", font=("Consolas", 9),
-                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
-        self.geo_lng_var = tk.StringVar(value=str(self.cfg.get("geo_lng", "")))
-        tk.Entry(geo_row, textvariable=self.geo_lng_var,
-                 font=("Consolas", 10), width=18,
-                 bg=C["input_bg"], fg=C["green"],
-                 insertbackground=C["green"],
-                 relief="flat", bd=3).pack(side="left", padx=(6, 0))
-
-        geo_btns = tk.Frame(geo_inner, bg=C["section_bg"])
-        geo_btns.pack(anchor="e", pady=(8, 0))
-        self._mk_btn(geo_btns, "Detectar pelo IP", self._detectar_localizacao_ip).pack(side="left", padx=(0, 8))
-        self._mk_btn(geo_btns, "Salvar", self._salvar_localizacao, solid=True).pack(side="left")
-
-        self._geo_status_lbl = tk.Label(geo_inner, text="", font=("Consolas", 8),
-                                         bg=C["section_bg"], fg=C["muted"])
-        self._geo_status_lbl.pack(anchor="w", pady=(4, 0))
-        if self.cfg.get("geo_lat") and self.cfg.get("geo_lng"):
-            self._geo_status_lbl.config(
-                text=f"manual: {self.cfg['geo_lat']}, {self.cfg['geo_lng']}")
-        else:
-            self._geo_status_lbl.config(text="usando detecção automática por IP")
-
         # ── Férias ────────────────────────────────────────────
         self._section_info(body, "// férias", padx=20,
             tooltip="Suspende todas as batidas durante o período de férias.\nNenhum schedule será executado entre as datas configuradas.")
@@ -1878,39 +1781,6 @@ class BrunoPontoApp:
             pass
 
     # ── Férias ────────────────────────────────────────────────
-
-    def _salvar_localizacao(self):
-        lat = self.geo_lat_var.get().strip()
-        lng = self.geo_lng_var.get().strip()
-        if lat and lng:
-            try:
-                float(lat); float(lng)
-            except ValueError:
-                self._geo_status_lbl.config(text="coordenadas inválidas — use formato decimal (ex: -20.3079)")
-                return
-        self.cfg["geo_lat"] = lat
-        self.cfg["geo_lng"] = lng
-        save_config(self.cfg)
-        if lat and lng:
-            self._geo_status_lbl.config(text=f"manual: {lat}, {lng}")
-            self.add_log(f"Localização salva: {lat}, {lng}", "ok")
-        else:
-            self._geo_status_lbl.config(text="usando detecção automática por IP")
-            self.add_log("Localização: voltou para detecção automática por IP", "info")
-
-    def _detectar_localizacao_ip(self):
-        self._geo_status_lbl.config(text="detectando...")
-        def _buscar():
-            lat, lng, local = _get_coordenadas_ip()
-            if lat and lng:
-                self.root.after(0, lambda: self.geo_lat_var.set(str(lat)))
-                self.root.after(0, lambda: self.geo_lng_var.set(str(lng)))
-                self.root.after(0, lambda: self._geo_status_lbl.config(
-                    text=f"detectado: {local} ({lat}, {lng})"))
-            else:
-                self.root.after(0, lambda: self._geo_status_lbl.config(
-                    text="não foi possível detectar — verifique a conexão"))
-        threading.Thread(target=_buscar, daemon=True).start()
 
     def _toggle_ferias(self):
         self.cfg["ferias_ativo"] = self.ferias_var.get()
