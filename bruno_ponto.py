@@ -529,6 +529,36 @@ def proximo_ponto(cfg: dict):
     return min(candidatos) if candidatos else None
 
 
+def _ler_batidas_log(from_date) -> list:
+    """Lê o log e retorna [(date, [(hora, tipo)])] a partir de from_date."""
+    raw      = {}
+    pat_real  = "✓ Ponto registrado às "
+    pat_teste = "Navegador aberto e campos preenchidos — clique NÃO executado ("
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            for linha in f:
+                try:
+                    data = datetime.strptime(linha[:10], "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                if data < from_date:
+                    continue
+                hora = tipo = None
+                if pat_real in linha:
+                    idx  = linha.index(pat_real) + len(pat_real)
+                    hora = linha[idx:idx + 5].strip()
+                    tipo = "real"
+                elif pat_teste in linha:
+                    idx  = linha.index(pat_teste) + len(pat_teste)
+                    hora = linha[idx:idx + 5].strip()
+                    tipo = "teste"
+                if hora and tipo and len(hora) == 5 and ":" in hora:
+                    raw.setdefault(data, []).append((hora, tipo))
+    except Exception as e:
+        log.error(f"Erro ao ler log de batidas: {e}")
+    return sorted(raw.items())
+
+
 # ──────────────────────────────────────────────────────
 #  JANELA DE AVISO (5 min antes)
 # ──────────────────────────────────────────────────────
@@ -1009,6 +1039,10 @@ class BrunoPontoApp:
             target=self._watchdog_loop, daemon=True
         )
         self._watchdog_thread.start()
+        self._telegram_poll_thread = threading.Thread(
+            target=self._telegram_polling_loop, daemon=True
+        )
+        self._telegram_poll_thread.start()
         self._update_heartbeat()
         self._atualizar_prox()
 
@@ -1878,6 +1912,176 @@ class BrunoPontoApp:
                 log.warning(f"Watchdog: sem heartbeat há +{horas}h (último: {ts})")
         except Exception as e:
             log.error(f"Watchdog erro: {e}")
+
+    # ── Telegram bot — receber comandos ─────────────────
+
+    def _telegram_polling_loop(self):
+        offset = 0
+        while True:
+            token   = self.cfg.get("telegram_token",   "").strip()
+            chat_id = self.cfg.get("telegram_chat_id", "").strip()
+            if not token or not chat_id:
+                time.sleep(30)
+                continue
+            try:
+                url = (f"https://api.telegram.org/bot{token}"
+                       f"/getUpdates?offset={offset}&timeout=5")
+                req = urllib.request.Request(url, headers={"User-Agent": "BrunoPonto"})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    data = json.loads(r.read().decode())
+                for upd in data.get("result", []):
+                    offset = upd["update_id"] + 1
+                    msg = upd.get("message") or upd.get("edited_message")
+                    if not msg:
+                        continue
+                    sender = str(msg.get("chat", {}).get("id", ""))
+                    if sender != chat_id:
+                        continue
+                    texto = (msg.get("text") or "").strip().lower()
+                    if texto:
+                        self._processar_cmd_telegram(texto)
+            except Exception as e:
+                log.error(f"Telegram polling: {e}")
+                time.sleep(15)
+                continue
+            time.sleep(8)
+
+    def _tg_send(self, texto: str):
+        token   = self.cfg.get("telegram_token",   "").strip()
+        chat_id = self.cfg.get("telegram_chat_id", "").strip()
+        if not token or not chat_id:
+            return
+        def _enviar():
+            try:
+                url  = f"https://api.telegram.org/bot{token}/sendMessage"
+                data = urllib.parse.urlencode(
+                    {"chat_id": chat_id, "text": texto}
+                ).encode()
+                urllib.request.urlopen(
+                    urllib.request.Request(url, data=data), timeout=10
+                )
+            except Exception as e:
+                log.error(f"Telegram resposta erro: {e}")
+        threading.Thread(target=_enviar, daemon=True).start()
+
+    def _processar_cmd_telegram(self, cmd: str):
+        _ABR = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+
+        if cmd == "/ping":
+            agora = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+            self._tg_send(f"🟢 Bruno Ponto está ativo.\n⏱ {agora}")
+
+        elif cmd == "/status":
+            modo = "TESTE 🧪" if self.cfg.get("modo_teste") else "REAL ✅"
+            prox = proximo_ponto(self.cfg)
+            if prox:
+                delta = prox - datetime.now()
+                total = int(delta.total_seconds())
+                h, rem = divmod(max(total, 0), 3600)
+                m, _   = divmod(rem, 60)
+                prox_txt = f"{prox.strftime('%H:%M')} (em {h:02d}h {m:02d}m)"
+            else:
+                prox_txt = "Nenhum horário agendado"
+            last     = self.cfg.get("last_heartbeat")
+            last_txt = (datetime.fromisoformat(last).strftime("%d/%m/%Y %H:%M")
+                        if last else "—")
+            ferias   = "ATIVO 🏖" if self.cfg.get("ferias_ativo") else "inativo"
+            self._tg_send(
+                f"📊 Status — Bruno Ponto\n\n"
+                f"🔄 Modo: {modo}\n"
+                f"📅 Próxima batida: {prox_txt}\n"
+                f"💓 Heartbeat: {last_txt}\n"
+                f"🏖 Férias: {ferias}"
+            )
+
+        elif cmd == "/schedules":
+            sched = self.cfg.get("schedules", [])
+            if not sched:
+                self._tg_send("📋 Nenhum schedule configurado.")
+                return
+            linhas = ["📋 Schedules\n"]
+            for s in sched:
+                ativo  = "✅" if s.get("ativo", True) else "⏸"
+                horas  = " | ".join(s.get("horarios", []))
+                dias   = " ".join(_ABR[d] for d in sorted(s.get("dias", [])))
+                ini_br = EditarScheduleWindow._iso_to_br(s.get("data_inicio") or "")
+                fim_br = EditarScheduleWindow._iso_to_br(s.get("data_fim") or "")
+                if ini_br and fim_br:
+                    vig = f"   {ini_br} → {fim_br}"
+                elif ini_br:
+                    vig = f"   desde {ini_br}"
+                else:
+                    vig = ""
+                bloco = f"{ativo} {s['nome']}\n   {horas}\n   {dias}"
+                if vig:
+                    bloco += f"\n{vig}"
+                linhas.append(bloco)
+            self._tg_send("\n\n".join(linhas))
+
+        elif cmd in ("/ferias", "/férias"):
+            if not self.cfg.get("ferias_ativo", False):
+                self._tg_send("🏖 Modo férias: INATIVO")
+            else:
+                ini = EditarScheduleWindow._iso_to_br(self.cfg.get("ferias_inicio") or "")
+                fim = EditarScheduleWindow._iso_to_br(self.cfg.get("ferias_fim") or "")
+                datas = f"\n📅 {ini} → {fim}" if (ini or fim) else ""
+                self._tg_send(f"🏖 Modo férias: ATIVO{datas}")
+
+        elif cmd == "/log":
+            try:
+                with open(LOG_FILE, "r", encoding="utf-8") as f:
+                    linhas = [l.strip() for l in f if l.strip()]
+                ultimas = linhas[-5:]
+                limpas = []
+                for l in ultimas:
+                    partes = l.split("  ", 2)
+                    hora   = partes[0][11:16] if len(partes[0]) >= 16 else ""
+                    msg_l  = partes[2]        if len(partes) >= 3    else l
+                    limpas.append(f"[{hora}] {msg_l}")
+                self._tg_send("📄 Últimas 5 entradas:\n\n" + "\n".join(limpas))
+            except Exception as e:
+                self._tg_send(f"❌ Erro ao ler log: {e}")
+
+        elif cmd == "/dia":
+            hoje    = datetime.now().date()
+            abr     = _ABR[hoje.weekday()]
+            titulo  = f"📋 Batidas de hoje — {abr}, {hoje.strftime('%d/%m/%Y')}\n"
+            batidas = _ler_batidas_log(hoje)
+            if not batidas:
+                self._tg_send(titulo + "\nNenhum registro encontrado.")
+                return
+            entradas = []
+            for _, regs in batidas:
+                for hora, tipo in sorted(regs):
+                    icone = "✅" if tipo == "real" else "🧪"
+                    entradas.append(f"  {icone} {hora}")
+            self._tg_send(titulo + "\n".join(entradas))
+
+        elif cmd == "/semana":
+            from_d = (datetime.now() - timedelta(days=6)).date()
+            self._cmd_batidas_periodo("📋 Últimos 7 dias", from_d)
+
+        elif cmd in ("/mes", "/mês"):
+            from_d = (datetime.now() - timedelta(days=29)).date()
+            self._cmd_batidas_periodo("📋 Últimos 30 dias", from_d)
+
+    def _cmd_batidas_periodo(self, titulo: str, from_date):
+        _ABR    = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+        batidas = _ler_batidas_log(from_date)
+        if not batidas:
+            self._tg_send(f"{titulo}\n\nNenhum registro encontrado.")
+            return
+        linhas = [f"{titulo}\n"]
+        for data, regs in batidas:
+            abr = _ABR[data.weekday()]
+            linhas.append(f"\n📅 {abr} {data.strftime('%d/%m/%Y')}")
+            for hora, tipo in sorted(regs):
+                icone = "✅" if tipo == "real" else "🧪"
+                linhas.append(f"  {icone} {hora}")
+        msg = "\n".join(linhas)
+        if len(msg) > 4000:
+            msg = msg[:3997] + "..."
+        self._tg_send(msg)
 
     # ── Bandeja do sistema ────────────────────────────
 
