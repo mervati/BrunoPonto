@@ -381,6 +381,16 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
             err = f"Erro ao registrar: {e}"
             log.error(err)
             app_ref.root.after(0, lambda: app_ref.add_log(err, "erro"))
+            now        = datetime.now()
+            dia_semana = DIAS_PT[now.weekday()]
+            data_fmt   = now.strftime("%d/%m/%Y")
+            msg_falha  = (
+                f"❌ Falha ao bater o ponto!\n"
+                f"📅 {dia_semana}, {data_fmt} às {hora_label}.\n\n"
+                f"Erro: {e}\n\n"
+                f"Verifique o app bruno.ponto 🔴"
+            )
+            app_ref._enviar_telegram(msg_falha)
 
     threading.Thread(target=_registrar, daemon=True).start()
 
