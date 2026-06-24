@@ -53,7 +53,7 @@ import urllib.parse
 #  CONSTANTES
 # ──────────────────────────────────────────────────────
 APP_NAME    = "Bruno Ponto"
-APP_VERSION = "1.2"
+APP_VERSION = "2.0"
 URL_PONTO   = "https://app.tangerino.com.br/Tangerino/"
 
 # Quando empacotado como .exe pelo PyInstaller, __file__ aponta para a pasta
@@ -299,6 +299,20 @@ def _mover_mouse_z():
         log.warning(f"Mover mouse: {e}")
 
 
+DIAS_PT = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira",
+           "Sexta-feira", "Sábado", "Domingo"]
+
+def _msg_telegram(hora_label: str, modo_teste: bool) -> str:
+    now = datetime.now()
+    dia_semana = DIAS_PT[now.weekday()]
+    data_fmt   = now.strftime("%d/%m/%Y")
+    prefixo    = "[TESTE] " if modo_teste else ""
+    return (
+        f"{prefixo}✅ Ponto batido com sucesso!\n"
+        f"📅 {dia_semana}, {data_fmt} às {hora_label}.\n\n"
+        f"Registro automático via bruno.ponto v{APP_VERSION} 🟢"
+    )
+
 def executar_acao(cfg: dict, app_ref, hora_label: str):
     """Executa a ação de ponto (modo real ou teste)."""
     global _driver
@@ -337,7 +351,7 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                         pass
                     _driver = None
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=True))
-                app_ref._enviar_telegram(f"[TESTE] Ponto simulado: {hora_label} ({agora})")
+                app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=True))
             else:
                 ok_msg = f"✓ Ponto registrado às {hora_label}"
                 log.info(ok_msg)
@@ -350,7 +364,7 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                         pass
                     _driver = None
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=False))
-                app_ref._enviar_telegram(f"✓ Ponto registrado: {hora_label} ({agora})")
+                app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=False))
 
         except Exception as e:
             err = f"Erro ao registrar: {e}"
@@ -1076,7 +1090,7 @@ class BrunoPontoApp:
                                 bg=C["input_bg"], fg=C["text"],
                                 font=("Consolas", 11),
                                 relief="flat", bd=6,
-                                state="disabled", height=8)
+                                state="disabled", height=5)
         self.log_text.pack(fill="both", expand=True)
         self.log_text.tag_config("ok",    foreground=C["green"])
         self.log_text.tag_config("erro",  foreground=C["red"])
