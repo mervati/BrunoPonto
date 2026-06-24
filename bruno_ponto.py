@@ -920,6 +920,40 @@ class EditarScheduleWindow(tk.Toplevel):
 
 
 # ──────────────────────────────────────────────────────
+#  TOOLTIP
+# ──────────────────────────────────────────────────────
+class _Tooltip:
+    def __init__(self, widget, text):
+        self._widget = widget
+        self._text   = text
+        self._tip    = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+
+    def _show(self, event=None):
+        x = self._widget.winfo_rootx() + 24
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
+        self._tip = tk.Toplevel(self._widget)
+        self._tip.wm_overrideredirect(True)
+        self._tip.wm_geometry(f"+{x}+{y}")
+        self._tip.wm_attributes("-topmost", True)
+        frame = tk.Frame(self._tip, bg=CORES["card"],
+                         highlightbackground=CORES["border"],
+                         highlightthickness=1)
+        frame.pack()
+        tk.Label(frame, text=self._text,
+                 font=("Consolas", 9),
+                 bg=CORES["card"], fg=CORES["text"],
+                 wraplength=300, justify="left",
+                 padx=12, pady=8).pack()
+
+    def _hide(self, event=None):
+        if self._tip:
+            self._tip.destroy()
+            self._tip = None
+
+
+# ──────────────────────────────────────────────────────
 #  APP PRINCIPAL
 # ──────────────────────────────────────────────────────
 class BrunoPontoApp:
@@ -1161,19 +1195,56 @@ class BrunoPontoApp:
             lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
 
         # Telegram
-        self._section(body, "// telegram", padx=20)
+        self._section_info(body, "// telegram", padx=20,
+            tooltip="Configurações do bot do Telegram para receber notificações automáticas após cada batida de ponto.")
         tg_card = self._card(body)
         tg_g = tk.Frame(tg_card, bg=C["section_bg"])
         tg_g.pack(fill="x", padx=10, pady=(8, 4))
         tg_g.columnconfigure(0, weight=1)
-        self._grid_input(tg_g, "Token", "telegram_token_var",
-                         self.cfg.get("telegram_token", ""), r=0, c=0,
-                         show="●", toggle=True)
-        self._grid_input(tg_g, "Chat ID", "telegram_chat_id_var",
-                         self.cfg.get("telegram_chat_id", ""), r=1, c=0)
-        tk.Label(tg_card, text="Mensagem",
-                 font=("Consolas", 9), bg=C["section_bg"],
-                 fg=C["muted"]).pack(anchor="w", padx=10, pady=(4, 0))
+
+        # Token com ⓘ
+        tk.Label(tg_g, text="Token", font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).grid(
+                     row=0, column=0, sticky="w", pady=(0, 0))
+        self._field_info(tg_g, "Token gerado pelo @BotFather no Telegram.\nFormato: 123456789:AABBccDDee...").grid(
+            row=0, column=0, sticky="w", padx=(44, 0))
+        self.telegram_token_var = tk.StringVar(value=self.cfg.get("telegram_token", ""))
+        _te = tk.Frame(tg_g, bg=C["section_bg"])
+        _te.grid(row=0, column=0, sticky="ew", pady=(16, 3))
+        _e = tk.Entry(_te, textvariable=self.telegram_token_var, show="●",
+                      font=("Consolas", 11), bg=C["input_bg"], fg=C["green"],
+                      insertbackground=C["green"], relief="flat", bd=4)
+        _e.pack(side="left", fill="x", expand=True)
+        def _tog_tok(e=_e):
+            e.config(show="" if e.cget("show") else "●")
+        tk.Button(_te, text="mostrar", font=("Consolas", 8),
+                  bg=C["section_bg"], fg=C["muted"], relief="flat",
+                  cursor="hand2", command=_tog_tok, padx=4).pack(side="right")
+
+        # Chat ID com ⓘ
+        tk.Label(tg_g, text="Chat ID", font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).grid(
+                     row=1, column=0, sticky="w", pady=(4, 0))
+        self._field_info(tg_g, "ID do chat ou grupo que receberá as notificações.\nUse o @userinfobot no Telegram para descobrir o seu ID.").grid(
+            row=1, column=0, sticky="w", padx=(58, 0), pady=(4, 0))
+        self.telegram_chat_id_var = tk.StringVar(value=self.cfg.get("telegram_chat_id", ""))
+        _ci = tk.Entry(tg_g, textvariable=self.telegram_chat_id_var,
+                       font=("Consolas", 11), bg=C["input_bg"], fg=C["green"],
+                       insertbackground=C["green"], relief="flat", bd=4)
+        _ci.grid(row=2, column=0, sticky="ew", pady=(2, 4))
+
+        # Mensagem com ⓘ
+        msg_lbl_row = tk.Frame(tg_card, bg=C["section_bg"])
+        msg_lbl_row.pack(anchor="w", padx=10, pady=(4, 0))
+        tk.Label(msg_lbl_row, text="Mensagem", font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
+        self._field_info(msg_lbl_row,
+            "Texto enviado ao Telegram após cada batida.\n\n"
+            "Variáveis disponíveis:\n"
+            "  {dia_semana} → ex: Quarta-feira\n"
+            "  {data}       → ex: 24/06/2026\n"
+            "  {hora}       → ex: 08:00\n"
+            "  {versao}     → versão do app").pack(side="left", padx=(4, 0))
         self.telegram_msg_text = tk.Text(tg_card,
                                          font=("Consolas", 10),
                                          bg=C["input_bg"], fg=C["green"],
@@ -1195,7 +1266,8 @@ class BrunoPontoApp:
                      solid=True).pack(side="right")
 
         # Watchdog
-        self._section(body, "// watchdog", padx=20)
+        self._section_info(body, "// watchdog", padx=20,
+            tooltip="Monitora se o programa está ativo.\nEnvia alerta no Telegram se ficar sem atividade por mais tempo que a tolerância configurada.")
         wd_card = self._card(body)
         wd_inner = tk.Frame(wd_card, bg=C["section_bg"])
         wd_inner.pack(fill="x", padx=10, pady=(8, 10))
@@ -1222,6 +1294,8 @@ class BrunoPontoApp:
         tk.Label(wd_row, text="horas sem atividade para alertar",
                  font=("Consolas", 9),
                  bg=C["section_bg"], fg=C["muted"]).pack(side="left")
+        self._field_info(wd_row,
+            "Quantidade de horas sem nenhuma atividade do scheduler antes de enviar o alerta.\n\nPadrão: 2h. Aumente se a máquina costuma ficar sem ponto para bater por períodos longos.").pack(side="left", padx=(6, 0))
         self.watchdog_horas_var.trace_add("write", self._salvar_watchdog)
         last = self.cfg.get("last_heartbeat")
         last_txt = datetime.fromisoformat(last).strftime("%d/%m/%Y %H:%M") if last else "—"
@@ -1231,7 +1305,8 @@ class BrunoPontoApp:
         self._wd_last_lbl.pack(anchor="w", pady=(6, 0))
 
         # Demora
-        self._section(body, "// demora no selenium", padx=20)
+        self._section_info(body, "// demora no selenium", padx=20,
+            tooltip="Alerta quando o navegador demora mais que o esperado para registrar o ponto.\nPode indicar lentidão na rede, no servidor ou no computador.")
         dm_card = self._card(body)
         dm_inner = tk.Frame(dm_card, bg=C["section_bg"])
         dm_inner.pack(fill="x", padx=10, pady=(8, 10))
@@ -1258,6 +1333,8 @@ class BrunoPontoApp:
         tk.Label(dm_row, text="segundos para alertar por lentidão",
                  font=("Consolas", 9),
                  bg=C["section_bg"], fg=C["muted"]).pack(side="left")
+        self._field_info(dm_row,
+            "Tempo máximo em segundos que o selenium pode demorar para abrir o navegador e registrar o ponto.\n\nSe ultrapassar, você recebe alerta no Telegram.\nPadrão: 60s.").pack(side="left", padx=(6, 0))
         self.demora_seg_var.trace_add("write", self._salvar_demora)
 
     def _section(self, parent, titulo, padx=0):
@@ -1267,6 +1344,24 @@ class BrunoPontoApp:
                  bg=CORES["bg"], fg=CORES["green"]).pack(side="left")
         tk.Frame(f, bg=CORES["border"], height=1).pack(
             side="left", fill="x", expand=True, padx=(8, 0), pady=5)
+
+    def _section_info(self, parent, titulo, tooltip, padx=0):
+        f = tk.Frame(parent, bg=CORES["bg"])
+        f.pack(fill="x", padx=padx, pady=(12, 4))
+        tk.Label(f, text=titulo, font=("Consolas", 8, "bold"),
+                 bg=CORES["bg"], fg=CORES["green"]).pack(side="left")
+        ib = tk.Label(f, text=" ⓘ", font=("Consolas", 10),
+                      bg=CORES["bg"], fg=CORES["muted"], cursor="hand2")
+        ib.pack(side="left")
+        _Tooltip(ib, tooltip)
+        tk.Frame(f, bg=CORES["border"], height=1).pack(
+            side="left", fill="x", expand=True, padx=(4, 0), pady=5)
+
+    def _field_info(self, parent, texto):
+        ib = tk.Label(parent, text=" ⓘ", font=("Consolas", 10),
+                      bg=CORES["section_bg"], fg=CORES["muted"], cursor="hand2")
+        _Tooltip(ib, texto)
+        return ib
 
     def _card(self, parent):
         f = tk.Frame(parent, bg=CORES["section_bg"],
