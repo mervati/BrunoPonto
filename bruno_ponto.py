@@ -1002,94 +1002,72 @@ class BrunoPontoApp:
                                          font=("Consolas", 8), fg=C["muted"])
         self._banner_side_lbl.pack(side="right", padx=20)
 
-        # Scrollable body
-        wrap = tk.Frame(self.root, bg=C["bg"])
-        wrap.pack(fill="both", expand=True)
-        self._body_canvas = tk.Canvas(wrap, bg=C["bg"], highlightthickness=0)
-        _sb = tk.Scrollbar(wrap, orient="vertical", command=self._body_canvas.yview)
-        body = tk.Frame(self._body_canvas, bg=C["bg"])
-        body.bind("<Configure>", lambda e: self._body_canvas.configure(
-            scrollregion=self._body_canvas.bbox("all")))
-        _bwin = self._body_canvas.create_window((0, 0), window=body, anchor="nw")
-        self._body_canvas.configure(yscrollcommand=_sb.set)
-        self._body_canvas.bind("<Configure>",
-            lambda e: self._body_canvas.itemconfig(_bwin, width=e.width))
-        self._body_canvas.pack(side="left", fill="both", expand=True)
-        _sb.pack(side="right", fill="y")
-        self._body_canvas.bind_all("<MouseWheel>",
-            lambda e: self._body_canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        # Notebook estilizado
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Dark.TNotebook",
+            background=C["bg"], borderwidth=0, tabmargins=[0, 0, 0, 0])
+        style.configure("Dark.TNotebook.Tab",
+            background=C["section_bg"], foreground=C["muted"],
+            font=("Consolas", 9), padding=[14, 6], borderwidth=0)
+        style.map("Dark.TNotebook.Tab",
+            background=[("selected", C["bg"]), ("active", C["card"])],
+            foreground=[("selected", C["green"]), ("active", C["text"])])
 
-        # ── Credenciais ──
+        nb = ttk.Notebook(self.root, style="Dark.TNotebook")
+        nb.pack(fill="both", expand=True, pady=(4, 0))
+
+        tab1 = tk.Frame(nb, bg=C["bg"])
+        nb.add(tab1, text="  Principal  ")
+        self._build_tab_principal(tab1)
+
+        tab2 = tk.Frame(nb, bg=C["bg"])
+        nb.add(tab2, text="  Configurações  ")
+        self._build_tab_config(tab2)
+
+        self._atualizar_banner()
+
+    def _build_tab_principal(self, parent):
+        C = CORES
+
+        wrap = tk.Frame(parent, bg=C["bg"])
+        wrap.pack(fill="both", expand=True)
+        canvas = tk.Canvas(wrap, bg=C["bg"], highlightthickness=0)
+        sb = tk.Scrollbar(wrap, orient="vertical", command=canvas.yview)
+        body = tk.Frame(canvas, bg=C["bg"])
+        body.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        bwin = canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(bwin, width=e.width))
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        canvas.bind_all("<MouseWheel>",
+            lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+
+        # Credenciais
         self._section(body, "// credenciais", padx=20)
         cred_card = self._card(body)
-
         g = tk.Frame(cred_card, bg=C["section_bg"])
-        g.pack(fill="x", padx=10, pady=(8, 4))
+        g.pack(fill="x", padx=10, pady=(8, 8))
         g.columnconfigure(0, weight=1)
         g.columnconfigure(1, weight=1)
         self._grid_input(g, "Cod. Empregador", "codigo_var",
                          self.cfg["codigo_empregador"], r=0, c=0)
         self._grid_input(g, "PIN", "pin_var",
                          self.cfg["pin"], r=0, c=1, show="●", toggle=True)
-
-        self._tg_header = tk.Frame(cred_card, bg=C["section_bg"])
-        self._tg_header.pack(fill="x", padx=10, pady=(6, 0))
-        self._telegram_visible = False
-        self._tg_toggle_btn = tk.Button(
-            self._tg_header, text="▶  Telegram",
-            font=("Consolas", 9), bg=C["section_bg"], fg=C["muted"],
-            relief="flat", cursor="hand2", anchor="w",
-            activebackground=C["section_bg"], activeforeground=C["green"],
-            command=self._toggle_telegram)
-        self._tg_toggle_btn.pack(side="left")
-        tk.Frame(self._tg_header, bg=C["border"], height=1).pack(
-            side="left", fill="x", expand=True, padx=(8, 0), pady=6)
-
-        self._telegram_frame = tk.Frame(cred_card, bg=C["section_bg"])
-        tg_g = tk.Frame(self._telegram_frame, bg=C["section_bg"])
-        tg_g.pack(fill="x", pady=4)
-        tg_g.columnconfigure(0, weight=1)
-        self._grid_input(tg_g, "Token", "telegram_token_var",
-                         self.cfg.get("telegram_token", ""), r=0, c=0,
-                         show="●", toggle=True)
-        self._grid_input(tg_g, "Chat ID", "telegram_chat_id_var",
-                         self.cfg.get("telegram_chat_id", ""), r=1, c=0)
-
-        # Mensagem personalizada
-        tk.Label(self._telegram_frame, text="Mensagem",
-                 font=("Consolas", 9), bg=C["section_bg"],
-                 fg=C["muted"]).pack(anchor="w")
-        self.telegram_msg_text = tk.Text(self._telegram_frame,
-                                         font=("Consolas", 10),
-                                         bg=C["input_bg"], fg=C["green"],
-                                         insertbackground=C["green"],
-                                         relief="flat", bd=4,
-                                         height=5, wrap="word")
-        self.telegram_msg_text.insert("1.0",
-            self.cfg.get("telegram_mensagem", _MSG_PADRAO))
-        self.telegram_msg_text.pack(fill="x", pady=(2, 4))
-        tk.Label(self._telegram_frame,
-                 text="variáveis: {dia_semana}  {data}  {hora}  {versao}",
-                 font=("Consolas", 8), bg=C["section_bg"],
-                 fg=C["muted"]).pack(anchor="w", pady=(0, 4))
-
-        self._mk_btn(self._telegram_frame, "Testar Telegram",
-                     self._testar_telegram).pack(anchor="e", pady=(0, 6))
-
-        self._save_row = tk.Frame(cred_card, bg=C["section_bg"])
-        self._save_row.pack(fill="x", padx=10, pady=(6, 10))
-        self._mk_btn(self._save_row, "Salvar", self._salvar_credenciais,
+        save_row = tk.Frame(cred_card, bg=C["section_bg"])
+        save_row.pack(fill="x", padx=10, pady=(0, 10))
+        self._mk_btn(save_row, "Salvar", self._salvar_credenciais,
                      solid=True).pack(side="right")
 
-        # ── Schedules ──
+        # Schedules
         self._section(body, "// schedules", padx=20)
         sched_card = self._card(body)
-
         sh = tk.Frame(sched_card, bg=C["section_bg"])
         sh.pack(fill="x", padx=10, pady=(4, 6))
         self._mk_btn(sh, "+ Adicionar",
                      self._abrir_adicionar_schedule).pack(side="right")
-
         list_wrap = tk.Frame(sched_card, bg=C["section_bg"])
         list_wrap.pack(fill="x", padx=10, pady=(0, 8))
         self._sched_canvas = tk.Canvas(list_wrap, bg=C["section_bg"],
@@ -1108,7 +1086,7 @@ class BrunoPontoApp:
         self._sched_scroll.pack(side="right", fill="y")
         self._render_schedules()
 
-        # ── Modo + Status (side by side) ──
+        # Modo + Status
         ms = tk.Frame(body, bg=C["bg"])
         ms.pack(fill="x", padx=20, pady=(10, 0))
         ms.columnconfigure(0, weight=1)
@@ -1129,80 +1107,15 @@ class BrunoPontoApp:
                        activeforeground=C["green"],
                        command=self._toggle_modo).pack(anchor="w")
 
-        tk.Frame(modo_card, bg=C["border"], height=1).pack(fill="x", pady=(8, 4))
-        tk.Label(modo_card, text="// watchdog", font=("Consolas", 8),
-                 bg=C["section_bg"], fg=C["green"]).pack(anchor="w")
-
-        wd_row = tk.Frame(modo_card, bg=C["section_bg"])
-        wd_row.pack(anchor="w", pady=(2, 0))
-        self.watchdog_var = tk.BooleanVar(value=self.cfg.get("watchdog_ativo", True))
-        tk.Checkbutton(wd_row, variable=self.watchdog_var,
-                       text=" ativo",
-                       font=("Consolas", 9),
-                       bg=C["section_bg"], fg=C["muted"],
-                       selectcolor=C["input_bg"],
-                       activebackground=C["section_bg"],
-                       activeforeground=C["green"],
-                       command=self._toggle_watchdog).pack(side="left")
-
-        self.watchdog_horas_var = tk.StringVar(
-            value=str(self.cfg.get("watchdog_horas", 2)))
-        tk.Entry(wd_row, textvariable=self.watchdog_horas_var,
-                 font=("Consolas", 9), width=3,
-                 bg=C["input_bg"], fg=C["green"],
-                 insertbackground=C["green"],
-                 relief="flat", bd=2,
-                 justify="center").pack(side="left", padx=(6, 2))
-        tk.Label(wd_row, text="h", font=("Consolas", 9),
-                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
-
-        last = self.cfg.get("last_heartbeat")
-        last_txt = datetime.fromisoformat(last).strftime("%d/%m/%Y %H:%M") if last else "—"
-        self._wd_last_lbl = tk.Label(modo_card, text=f"último: {last_txt}",
-                                      font=("Consolas", 8),
-                                      bg=C["section_bg"], fg=C["muted"])
-        self._wd_last_lbl.pack(anchor="w", pady=(2, 6))
-
-        self.watchdog_horas_var.trace_add("write", self._salvar_watchdog)
-
-        tk.Frame(modo_card, bg=C["border"], height=1).pack(fill="x", pady=(4, 4))
-        tk.Label(modo_card, text="// demora", font=("Consolas", 8),
-                 bg=C["section_bg"], fg=C["green"]).pack(anchor="w")
-
-        dm_row = tk.Frame(modo_card, bg=C["section_bg"])
-        dm_row.pack(anchor="w", pady=(2, 6))
-        self.demora_var = tk.BooleanVar(value=self.cfg.get("alerta_demora_ativo", True))
-        tk.Checkbutton(dm_row, variable=self.demora_var,
-                       text=" ativo",
-                       font=("Consolas", 9),
-                       bg=C["section_bg"], fg=C["muted"],
-                       selectcolor=C["input_bg"],
-                       activebackground=C["section_bg"],
-                       activeforeground=C["green"],
-                       command=self._toggle_demora).pack(side="left")
-        self.demora_seg_var = tk.StringVar(
-            value=str(self.cfg.get("alerta_demora_seg", 60)))
-        tk.Entry(dm_row, textvariable=self.demora_seg_var,
-                 font=("Consolas", 9), width=4,
-                 bg=C["input_bg"], fg=C["green"],
-                 insertbackground=C["green"],
-                 relief="flat", bd=2,
-                 justify="center").pack(side="left", padx=(6, 2))
-        tk.Label(dm_row, text="s", font=("Consolas", 9),
-                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
-        self.demora_seg_var.trace_add("write", self._salvar_demora)
-
         stat_card = tk.Frame(ms, bg=C["section_bg"],
                              highlightbackground=C["green"], highlightthickness=1)
         stat_card.grid(row=0, column=1, sticky="nsew", ipady=8, ipadx=10)
-
         stat_top = tk.Frame(stat_card, bg=C["section_bg"])
         stat_top.pack(fill="x", pady=(4, 2))
         tk.Label(stat_top, text="// status", font=("Consolas", 8),
                  bg=C["section_bg"], fg=C["green"]).pack(side="left")
         self._mk_btn(stat_top, "RUN", self._testar_agora,
                      solid=True).pack(side="right")
-
         self.prox_lbl = tk.Label(stat_card, text="calculando...",
                                  font=("Consolas", 11, "bold"),
                                  bg=C["section_bg"], fg=C["green"])
@@ -1213,7 +1126,7 @@ class BrunoPontoApp:
         self.relogio_lbl.pack(anchor="w")
         self._tick_relogio()
 
-        # ── Output ──
+        # Output
         self._section(body, "// output", padx=20)
         log_outer = tk.Frame(body, bg=C["section_bg"],
                              highlightbackground=C["border"], highlightthickness=1)
@@ -1229,7 +1142,123 @@ class BrunoPontoApp:
         self.log_text.tag_config("teste", foreground=C["amber"])
         self.log_text.tag_config("info",  foreground=C["muted"])
 
-        self._atualizar_banner()
+    def _build_tab_config(self, parent):
+        C = CORES
+
+        wrap = tk.Frame(parent, bg=C["bg"])
+        wrap.pack(fill="both", expand=True)
+        canvas = tk.Canvas(wrap, bg=C["bg"], highlightthickness=0)
+        sb = tk.Scrollbar(wrap, orient="vertical", command=canvas.yview)
+        body = tk.Frame(canvas, bg=C["bg"])
+        body.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        bwin = canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(bwin, width=e.width))
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        canvas.bind_all("<MouseWheel>",
+            lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+
+        # Telegram
+        self._section(body, "// telegram", padx=20)
+        tg_card = self._card(body)
+        tg_g = tk.Frame(tg_card, bg=C["section_bg"])
+        tg_g.pack(fill="x", padx=10, pady=(8, 4))
+        tg_g.columnconfigure(0, weight=1)
+        self._grid_input(tg_g, "Token", "telegram_token_var",
+                         self.cfg.get("telegram_token", ""), r=0, c=0,
+                         show="●", toggle=True)
+        self._grid_input(tg_g, "Chat ID", "telegram_chat_id_var",
+                         self.cfg.get("telegram_chat_id", ""), r=1, c=0)
+        tk.Label(tg_card, text="Mensagem",
+                 font=("Consolas", 9), bg=C["section_bg"],
+                 fg=C["muted"]).pack(anchor="w", padx=10, pady=(4, 0))
+        self.telegram_msg_text = tk.Text(tg_card,
+                                         font=("Consolas", 10),
+                                         bg=C["input_bg"], fg=C["green"],
+                                         insertbackground=C["green"],
+                                         relief="flat", bd=4,
+                                         height=5, wrap="word")
+        self.telegram_msg_text.insert("1.0",
+            self.cfg.get("telegram_mensagem", _MSG_PADRAO))
+        self.telegram_msg_text.pack(fill="x", padx=10, pady=(2, 4))
+        tk.Label(tg_card,
+                 text="variáveis: {dia_semana}  {data}  {hora}  {versao}",
+                 font=("Consolas", 8), bg=C["section_bg"],
+                 fg=C["muted"]).pack(anchor="w", padx=10, pady=(0, 4))
+        tg_btns = tk.Frame(tg_card, bg=C["section_bg"])
+        tg_btns.pack(fill="x", padx=10, pady=(0, 10))
+        self._mk_btn(tg_btns, "Testar Telegram",
+                     self._testar_telegram).pack(side="left")
+        self._mk_btn(tg_btns, "Salvar", self._salvar_config_tab,
+                     solid=True).pack(side="right")
+
+        # Watchdog
+        self._section(body, "// watchdog", padx=20)
+        wd_card = self._card(body)
+        wd_inner = tk.Frame(wd_card, bg=C["section_bg"])
+        wd_inner.pack(fill="x", padx=10, pady=(8, 10))
+        self.watchdog_var = tk.BooleanVar(value=self.cfg.get("watchdog_ativo", True))
+        tk.Checkbutton(wd_inner, variable=self.watchdog_var,
+                       text=" Ativo",
+                       font=("Consolas", 10),
+                       bg=C["section_bg"], fg=C["text"],
+                       selectcolor=C["input_bg"],
+                       activebackground=C["section_bg"],
+                       activeforeground=C["green"],
+                       command=self._toggle_watchdog).pack(anchor="w")
+        wd_row = tk.Frame(wd_inner, bg=C["section_bg"])
+        wd_row.pack(anchor="w", pady=(6, 0))
+        tk.Label(wd_row, text="Tolerância:", font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
+        self.watchdog_horas_var = tk.StringVar(
+            value=str(self.cfg.get("watchdog_horas", 2)))
+        tk.Entry(wd_row, textvariable=self.watchdog_horas_var,
+                 font=("Consolas", 10), width=4,
+                 bg=C["input_bg"], fg=C["green"],
+                 insertbackground=C["green"],
+                 relief="flat", bd=3, justify="center").pack(side="left", padx=(6, 4))
+        tk.Label(wd_row, text="horas sem atividade para alertar",
+                 font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
+        self.watchdog_horas_var.trace_add("write", self._salvar_watchdog)
+        last = self.cfg.get("last_heartbeat")
+        last_txt = datetime.fromisoformat(last).strftime("%d/%m/%Y %H:%M") if last else "—"
+        self._wd_last_lbl = tk.Label(wd_inner, text=f"último heartbeat: {last_txt}",
+                                      font=("Consolas", 8),
+                                      bg=C["section_bg"], fg=C["muted"])
+        self._wd_last_lbl.pack(anchor="w", pady=(6, 0))
+
+        # Demora
+        self._section(body, "// demora no selenium", padx=20)
+        dm_card = self._card(body)
+        dm_inner = tk.Frame(dm_card, bg=C["section_bg"])
+        dm_inner.pack(fill="x", padx=10, pady=(8, 10))
+        self.demora_var = tk.BooleanVar(value=self.cfg.get("alerta_demora_ativo", True))
+        tk.Checkbutton(dm_inner, variable=self.demora_var,
+                       text=" Ativo",
+                       font=("Consolas", 10),
+                       bg=C["section_bg"], fg=C["text"],
+                       selectcolor=C["input_bg"],
+                       activebackground=C["section_bg"],
+                       activeforeground=C["green"],
+                       command=self._toggle_demora).pack(anchor="w")
+        dm_row = tk.Frame(dm_inner, bg=C["section_bg"])
+        dm_row.pack(anchor="w", pady=(6, 0))
+        tk.Label(dm_row, text="Limite:", font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
+        self.demora_seg_var = tk.StringVar(
+            value=str(self.cfg.get("alerta_demora_seg", 60)))
+        tk.Entry(dm_row, textvariable=self.demora_seg_var,
+                 font=("Consolas", 10), width=4,
+                 bg=C["input_bg"], fg=C["green"],
+                 insertbackground=C["green"],
+                 relief="flat", bd=3, justify="center").pack(side="left", padx=(6, 4))
+        tk.Label(dm_row, text="segundos para alertar por lentidão",
+                 font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
+        self.demora_seg_var.trace_add("write", self._salvar_demora)
 
     def _section(self, parent, titulo, padx=0):
         f = tk.Frame(parent, bg=CORES["bg"])
@@ -1417,9 +1446,6 @@ class BrunoPontoApp:
     def _salvar_credenciais(self):
         self.cfg["codigo_empregador"] = self.codigo_var.get().strip()
         self.cfg["pin"]               = self.pin_var.get().strip()
-        self.cfg["telegram_token"]    = self.telegram_token_var.get().strip()
-        self.cfg["telegram_chat_id"]  = self.telegram_chat_id_var.get().strip()
-        self.cfg["telegram_mensagem"] = self.telegram_msg_text.get("1.0", "end-1c").strip()
         save_config(self.cfg)
         rebuild_schedule(self.cfg, self)
         self.add_log("Credenciais salvas.", "ok")
@@ -1432,6 +1458,24 @@ class BrunoPontoApp:
         save_config(self.cfg)
         self._enviar_telegram(_msg_telegram("HH:MM", modo_teste=False,
             template=self.cfg.get("telegram_mensagem", "")))
+
+    def _salvar_config_tab(self):
+        self.cfg["telegram_token"]      = self.telegram_token_var.get().strip()
+        self.cfg["telegram_chat_id"]    = self.telegram_chat_id_var.get().strip()
+        self.cfg["telegram_mensagem"]   = self.telegram_msg_text.get("1.0", "end-1c").strip()
+        self.cfg["watchdog_ativo"]      = self.watchdog_var.get()
+        try:
+            self.cfg["watchdog_horas"]  = int(self.watchdog_horas_var.get() or 2)
+        except ValueError:
+            pass
+        self.cfg["alerta_demora_ativo"] = self.demora_var.get()
+        try:
+            self.cfg["alerta_demora_seg"] = int(self.demora_seg_var.get() or 60)
+        except ValueError:
+            pass
+        save_config(self.cfg)
+        self.add_log("Configurações salvas.", "ok")
+        messagebox.showinfo(APP_NAME, "Configurações salvas com sucesso!", parent=self.root)
 
     def _toggle_modo(self):
         self.cfg["modo_teste"] = self.modo_var.get()
@@ -1482,16 +1526,6 @@ class BrunoPontoApp:
             self.teste_banner.config(bg=C["bg"])
             self.teste_lbl.config(text="", bg=C["bg"], fg=C["bg"])
             self._banner_side_lbl.config(bg=C["bg"], fg=C["bg"])
-
-    def _toggle_telegram(self):
-        if self._telegram_visible:
-            self._telegram_frame.pack_forget()
-            self._telegram_visible = False
-            self._tg_toggle_btn.config(text="▶  Telegram", fg=CORES["muted"])
-        else:
-            self._telegram_frame.pack(fill="x", padx=10, after=self._tg_header)
-            self._telegram_visible = True
-            self._tg_toggle_btn.config(text="▼  Telegram", fg=CORES["green"])
 
     def _abrir_adicionar_schedule(self):
         EditarScheduleWindow(
@@ -1622,7 +1656,7 @@ class BrunoPontoApp:
         save_config(self.cfg)
         if hasattr(self, "_wd_last_lbl"):
             ts = datetime.now().strftime("%d/%m/%Y %H:%M")
-            self.root.after(0, lambda: self._wd_last_lbl.config(text=f"último: {ts}"))
+            self.root.after(0, lambda: self._wd_last_lbl.config(text=f"último heartbeat: {ts}"))
 
     def _watchdog_loop(self):
         for _ in range(360):          # aguarda 1h antes do primeiro check
