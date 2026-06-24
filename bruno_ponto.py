@@ -2040,10 +2040,15 @@ class BrunoPontoApp:
                 "/status     → Modo, próxima batida e heartbeat\n"
                 "/schedules  → Lista todos os agendamentos\n"
                 "/ferias     → Status do modo férias\n"
-                "/log        → Últimas 5 entradas do log\n"
-                "/dia        → Batidas de hoje\n"
-                "/semana     → Batidas dos últimos 7 dias\n"
-                "/mes        → Batidas dos últimos 30 dias\n"
+                "/log        → Últimas 5 entradas do log\n\n"
+                "— Produção —\n"
+                "/dia        → Batidas reais de hoje\n"
+                "/semana     → Batidas reais dos últimos 7 dias\n"
+                "/mes        → Batidas reais dos últimos 30 dias\n\n"
+                "— Teste —\n"
+                "/teste_d    → Testes de hoje\n"
+                "/teste_s    → Testes dos últimos 7 dias\n"
+                "/teste_m    → Testes dos últimos 30 dias\n\n"
                 "/?          → Esta mensagem"
             )
 
@@ -2123,41 +2128,53 @@ class BrunoPontoApp:
                 self._tg_send(f"❌ Erro ao ler log: {e}")
 
         elif cmd == "/dia":
-            hoje    = datetime.now().date()
-            abr     = _ABR[hoje.weekday()]
-            titulo  = f"📋 Batidas de hoje — {abr}, {hoje.strftime('%d/%m/%Y')}\n"
-            batidas = _ler_batidas_log(hoje)
-            if not batidas:
-                self._tg_send(titulo + "\nNenhum registro encontrado.")
-                return
-            entradas = []
-            for _, regs in batidas:
-                for hora, tipo in sorted(regs):
-                    icone = "✅" if tipo == "real" else "🧪"
-                    entradas.append(f"  {icone} {hora}")
-            self._tg_send(titulo + "\n".join(entradas))
+            hoje = datetime.now().date()
+            abr  = _ABR[hoje.weekday()]
+            self._cmd_batidas_periodo(
+                f"📋 Batidas de hoje — {abr}, {hoje.strftime('%d/%m/%Y')}",
+                hoje, filtro="real")
 
         elif cmd == "/semana":
             from_d = (datetime.now() - timedelta(days=6)).date()
-            self._cmd_batidas_periodo("📋 Últimos 7 dias", from_d)
+            self._cmd_batidas_periodo("📋 Últimos 7 dias", from_d, filtro="real")
 
         elif cmd in ("/mes", "/mês"):
             from_d = (datetime.now() - timedelta(days=29)).date()
-            self._cmd_batidas_periodo("📋 Últimos 30 dias", from_d)
+            self._cmd_batidas_periodo("📋 Últimos 30 dias", from_d, filtro="real")
 
-    def _cmd_batidas_periodo(self, titulo: str, from_date):
+        elif cmd == "/teste_d":
+            hoje = datetime.now().date()
+            abr  = _ABR[hoje.weekday()]
+            self._cmd_batidas_periodo(
+                f"🧪 Testes de hoje — {abr}, {hoje.strftime('%d/%m/%Y')}",
+                hoje, filtro="teste")
+
+        elif cmd == "/teste_s":
+            from_d = (datetime.now() - timedelta(days=6)).date()
+            self._cmd_batidas_periodo("🧪 Testes — últimos 7 dias", from_d, filtro="teste")
+
+        elif cmd == "/teste_m":
+            from_d = (datetime.now() - timedelta(days=29)).date()
+            self._cmd_batidas_periodo("🧪 Testes — últimos 30 dias", from_d, filtro="teste")
+
+    def _cmd_batidas_periodo(self, titulo: str, from_date, filtro: str = None):
         _ABR    = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
         batidas = _ler_batidas_log(from_date)
-        if not batidas:
-            self._tg_send(f"{titulo}\n\nNenhum registro encontrado.")
-            return
-        linhas = [f"{titulo}\n"]
+        linhas  = [f"{titulo}\n"]
+        tem     = False
         for data, regs in batidas:
+            filtradas = [(h, t) for h, t in regs if filtro is None or t == filtro]
+            if not filtradas:
+                continue
+            tem = True
             abr = _ABR[data.weekday()]
             linhas.append(f"\n📅 {abr} {data.strftime('%d/%m/%Y')}")
-            for hora, tipo in sorted(regs):
+            for hora, tipo in sorted(filtradas):
                 icone = "✅" if tipo == "real" else "🧪"
                 linhas.append(f"  {icone} {hora}")
+        if not tem:
+            self._tg_send(f"{titulo}\n\nNenhum registro encontrado.")
+            return
         msg = "\n".join(linhas)
         if len(msg) > 4000:
             msg = msg[:3997] + "..."
