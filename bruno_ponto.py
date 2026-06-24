@@ -46,11 +46,14 @@ try:
 except ImportError:
     HAS_SELENIUM = False
 
+import urllib.request
+import urllib.parse
+
 # ──────────────────────────────────────────────────────
 #  CONSTANTES
 # ──────────────────────────────────────────────────────
 APP_NAME    = "Bruno Ponto"
-APP_VERSION = "1.1"
+APP_VERSION = "1.2"
 URL_PONTO   = "https://app.tangerino.com.br/Tangerino/"
 
 # Quando empacotado como .exe pelo PyInstaller, __file__ aponta para a pasta
@@ -66,27 +69,29 @@ LOG_FILE = os.path.join(_BASE_DIR, "bruno_ponto_log.txt")
 DEFAULT_CONFIG = {
     "codigo_empregador": "",
     "pin": "",
+    "telegram_token":   "",
+    "telegram_chat_id": "",
     "schedules": [],
     "modo_teste": True,
 }
 
 CORES = {
-    "bg":        "#090909",
-    "panel":     "#0D0D0D",
-    "card":      "#111111",
-    "green":     "#00FF41",
-    "green_d":   "#00C032",
-    "red":       "#FF4444",
-    "amber":     "#FFB800",
-    "text":      "#D4D4D4",
-    "muted":     "#444444",
-    "border":    "#1C1C1C",
-    "neon":      "#00FF41",
-    "input_bg":  "#060606",
-    # aliases para manter compatibilidade
-    "purple":    "#00FF41",
-    "purple_d":  "#00C032",
-    "teste":     "#FFB800",
+    "bg":         "#0b0f12",
+    "panel":      "#111820",
+    "card":       "#161f2c",
+    "section_bg": "#161f2c",
+    "green":      "#10b981",
+    "green_d":    "#0d9488",
+    "red":        "#ef4444",
+    "amber":      "#f59e0b",
+    "text":       "#e2e8f0",
+    "muted":      "#64748b",
+    "border":     "#1f293d",
+    "neon":       "#10b981",
+    "input_bg":   "#0b0f12",
+    "purple":     "#10b981",
+    "purple_d":   "#0d9488",
+    "teste":      "#f59e0b",
 }
 
 def _criar_icone_tray():
@@ -332,6 +337,7 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                         pass
                     _driver = None
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=True))
+                app_ref._enviar_telegram(f"[TESTE] Ponto simulado: {hora_label} ({agora})")
             else:
                 ok_msg = f"✓ Ponto registrado às {hora_label}"
                 log.info(ok_msg)
@@ -344,6 +350,7 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                         pass
                     _driver = None
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=False))
+                app_ref._enviar_telegram(f"✓ Ponto registrado: {hora_label} ({agora})")
 
         except Exception as e:
             err = f"Erro ao registrar: {e}"
@@ -497,7 +504,6 @@ class AlertaWindow(tk.Toplevel):
         self.title("bruno.ponto")
         self.configure(bg=CORES["bg"])
         self.resizable(False, False)
-        self.grab_set()
 
         self.update_idletasks()
         w, h = 400, 230
@@ -625,12 +631,19 @@ class EditarScheduleWindow(tk.Toplevel):
                   highlightbackground=CORES["green"], highlightthickness=1,
                   activebackground=CORES["card"], activeforeground=CORES["green"],
                   command=self._add_hora).pack(side="left", padx=(0, 6))
+        tk.Button(hora_btns, text="Editar", font=("Consolas", 9),
+                  bg=CORES["card"], fg=CORES["amber"],
+                  relief="flat", cursor="hand2",
+                  highlightbackground=CORES["amber"], highlightthickness=1,
+                  activebackground=CORES["card"], activeforeground=CORES["amber"],
+                  command=self._editar_hora).pack(side="left", padx=(0, 6))
         tk.Button(hora_btns, text="Remover", font=("Consolas", 9),
                   bg=CORES["card"], fg=CORES["red"],
                   relief="flat", cursor="hand2",
                   highlightbackground=CORES["red"], highlightthickness=1,
                   activebackground=CORES["card"], activeforeground=CORES["red"],
                   command=self._del_hora).pack(side="left")
+        self._hora_listbox.bind("<Double-Button-1>", lambda e: self._editar_hora())
 
         # Dias da semana (grid 4 + 3)
         dias_lbl_row = tk.Frame(body, bg=CORES["bg"])
@@ -752,6 +765,37 @@ class EditarScheduleWindow(tk.Toplevel):
         if sel:
             self._hora_listbox.delete(sel[0])
 
+    def _editar_hora(self):
+        sel = self._hora_listbox.curselection()
+        if not sel:
+            messagebox.showinfo("Selecione um horário",
+                                "Clique em um horário da lista antes de editar.", parent=self)
+            return
+        idx    = sel[0]
+        atual  = self._hora_listbox.get(idx)
+        novo   = simpledialog.askstring("Editar horário", "Novo horário (HH:MM):",
+                                        initialvalue=atual, parent=self)
+        if not novo:
+            return
+        novo = novo.strip()
+        try:
+            datetime.strptime(novo, "%H:%M")
+        except ValueError:
+            messagebox.showerror("Formato inválido", "Use HH:MM (ex: 09:00)", parent=self)
+            return
+        outros = list(self._hora_listbox.get(0, tk.END))
+        outros.pop(idx)
+        if novo in outros:
+            messagebox.showerror("Duplicado", f"{novo} já está na lista.", parent=self)
+            return
+        self._hora_listbox.delete(idx)
+        todos = sorted(outros + [novo])
+        self._hora_listbox.delete(0, tk.END)
+        for h in todos:
+            self._hora_listbox.insert(tk.END, h)
+        novo_idx = todos.index(novo)
+        self._hora_listbox.selection_set(novo_idx)
+
     def _toggle_fim(self):
         if self.tem_fim_var.get():
             self.fim_entry.config(state="normal")
@@ -833,7 +877,7 @@ class BrunoPontoApp:
         except Exception:
             pass
 
-        w, h = 560, 780
+        w, h = 580, 800
         self.root.geometry(f"{w}x{h}")
         self._center()
 
@@ -854,145 +898,186 @@ class BrunoPontoApp:
         self.root.update_idletasks()
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        x  = (sw - 560) // 2
-        y  = (sh - 780) // 2
-        self.root.geometry(f"560x780+{x}+{y}")
+        x  = (sw - 580) // 2
+        y  = (sh - 800) // 2
+        self.root.geometry(f"580x800+{x}+{y}")
 
     # ── UI ────────────────────────────────────────────
 
     def _build_ui(self):
         C = CORES
 
-        # ── Header ──
-        hdr = tk.Frame(self.root, bg=C["bg"], height=64)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
+        # Topbar
+        topbar = tk.Frame(self.root, bg=C["section_bg"], height=56)
+        topbar.pack(fill="x")
+        topbar.pack_propagate(False)
+        tk.Frame(self.root, bg=C["border"], height=1).pack(fill="x")
 
-        # linha verde no topo
-        tk.Frame(self.root, bg=C["green"], height=2).pack(fill="x")
+        tleft = tk.Frame(topbar, bg=C["section_bg"])
+        tleft.pack(side="left", padx=20, fill="y")
+        tk.Label(tleft, text=">_", font=("Consolas", 16, "bold"),
+                 bg=C["section_bg"], fg=C["green"]).pack(side="left")
+        tk.Label(tleft, text=" bruno.ponto", font=("Consolas", 14, "bold"),
+                 bg=C["section_bg"], fg=C["text"]).pack(side="left")
 
-        left = tk.Frame(hdr, bg=C["bg"])
-        left.pack(side="left", padx=18, fill="y")
-        tk.Label(left, text=">_", font=("Consolas", 18, "bold"),
-                 bg=C["bg"], fg=C["green"]).pack(side="left")
-        tk.Label(left, text=" bruno.ponto", font=("Consolas", 16, "bold"),
-                 bg=C["bg"], fg=C["text"]).pack(side="left")
+        tright = tk.Frame(topbar, bg=C["section_bg"])
+        tright.pack(side="right", padx=20, fill="y")
+        tk.Label(tright, text="<dev/>", font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["green"]).pack(side="right")
+        tk.Label(tright, text=f"v{APP_VERSION}  ", font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(side="right")
 
-        right = tk.Frame(hdr, bg=C["bg"])
-        right.pack(side="right", padx=18, fill="y")
-        tk.Label(right, text="<dev/>", font=("Consolas", 10),
-                 bg=C["bg"], fg=C["green"]).pack(side="right")
-        tk.Label(right, text=f"v{APP_VERSION}  ", font=("Consolas", 9),
-                 bg=C["bg"], fg=C["muted"]).pack(side="right")
-
-        # ── Modo Teste banner ──
-        self.teste_banner = tk.Frame(self.root, bg=C["card"], height=26)
+        # Banner teste
+        self.teste_banner = tk.Frame(self.root, height=28)
         self.teste_banner.pack(fill="x")
         self.teste_banner.pack_propagate(False)
         self.teste_lbl = tk.Label(self.teste_banner, text="",
-                                  font=("Consolas", 9, "bold"),
-                                  bg=C["card"])
-        self.teste_lbl.pack(expand=True)
+                                  font=("Consolas", 9, "bold"))
+        self.teste_lbl.pack(side="left", padx=20)
+        self._banner_side_lbl = tk.Label(self.teste_banner, text="Modo Simulação",
+                                         font=("Consolas", 8), fg=C["muted"])
+        self._banner_side_lbl.pack(side="right", padx=20)
 
-        body = tk.Frame(self.root, bg=C["bg"])
-        body.pack(fill="both", expand=True, padx=16, pady=10)
+        # Scrollable body
+        wrap = tk.Frame(self.root, bg=C["bg"])
+        wrap.pack(fill="both", expand=True)
+        self._body_canvas = tk.Canvas(wrap, bg=C["bg"], highlightthickness=0)
+        _sb = tk.Scrollbar(wrap, orient="vertical", command=self._body_canvas.yview)
+        body = tk.Frame(self._body_canvas, bg=C["bg"])
+        body.bind("<Configure>", lambda e: self._body_canvas.configure(
+            scrollregion=self._body_canvas.bbox("all")))
+        _bwin = self._body_canvas.create_window((0, 0), window=body, anchor="nw")
+        self._body_canvas.configure(yscrollcommand=_sb.set)
+        self._body_canvas.bind("<Configure>",
+            lambda e: self._body_canvas.itemconfig(_bwin, width=e.width))
+        self._body_canvas.pack(side="left", fill="both", expand=True)
+        _sb.pack(side="right", fill="y")
+        self._body_canvas.bind_all("<MouseWheel>",
+            lambda e: self._body_canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
 
         # ── Credenciais ──
-        self._section(body, "// credenciais")
-        cred = self._card(body)
+        self._section(body, "// credenciais", padx=20)
+        cred_card = self._card(body)
 
-        self._row_input(cred, "cod. empregador", "codigo_var",
-                        self.cfg["codigo_empregador"])
-        self._row_input(cred, "pin", "pin_var",
-                        self.cfg["pin"], show="●", toggle=True)
+        g = tk.Frame(cred_card, bg=C["section_bg"])
+        g.pack(fill="x", padx=10, pady=(8, 4))
+        g.columnconfigure(0, weight=1)
+        g.columnconfigure(1, weight=1)
+        self._grid_input(g, "Cod. Empregador", "codigo_var",
+                         self.cfg["codigo_empregador"], r=0, c=0)
+        self._grid_input(g, "PIN", "pin_var",
+                         self.cfg["pin"], r=0, c=1, show="●", toggle=True)
 
-        row_save = tk.Frame(cred, bg=C["card"])
-        row_save.pack(fill="x", pady=(6, 2))
-        self._neon_btn(row_save, "[ salvar ]", self._salvar_credenciais).pack(side="right")
+        self._tg_header = tk.Frame(cred_card, bg=C["section_bg"])
+        self._tg_header.pack(fill="x", padx=10, pady=(6, 0))
+        self._telegram_visible = False
+        self._tg_toggle_btn = tk.Button(
+            self._tg_header, text="▶  Telegram",
+            font=("Consolas", 9), bg=C["section_bg"], fg=C["muted"],
+            relief="flat", cursor="hand2", anchor="w",
+            activebackground=C["section_bg"], activeforeground=C["green"],
+            command=self._toggle_telegram)
+        self._tg_toggle_btn.pack(side="left")
+        tk.Frame(self._tg_header, bg=C["border"], height=1).pack(
+            side="left", fill="x", expand=True, padx=(8, 0), pady=6)
+
+        self._telegram_frame = tk.Frame(cred_card, bg=C["section_bg"])
+        tg_g = tk.Frame(self._telegram_frame, bg=C["section_bg"])
+        tg_g.pack(fill="x", pady=4)
+        tg_g.columnconfigure(0, weight=1)
+        self._grid_input(tg_g, "Token", "telegram_token_var",
+                         self.cfg.get("telegram_token", ""), r=0, c=0,
+                         show="●", toggle=True)
+        self._grid_input(tg_g, "Chat ID", "telegram_chat_id_var",
+                         self.cfg.get("telegram_chat_id", ""), r=1, c=0)
+        self._mk_btn(self._telegram_frame, "Testar Telegram",
+                     self._testar_telegram).pack(anchor="e", pady=(0, 6))
+
+        self._save_row = tk.Frame(cred_card, bg=C["section_bg"])
+        self._save_row.pack(fill="x", padx=10, pady=(6, 10))
+        self._mk_btn(self._save_row, "Salvar", self._salvar_credenciais,
+                     solid=True).pack(side="right")
 
         # ── Schedules ──
-        self._section(body, "// schedules")
+        self._section(body, "// schedules", padx=20)
         sched_card = self._card(body)
 
-        list_wrap = tk.Frame(sched_card, bg=C["card"])
-        list_wrap.pack(fill="x")
-        self._sched_canvas = tk.Canvas(list_wrap, bg=C["card"],
-                                       highlightthickness=0, height=120)
+        sh = tk.Frame(sched_card, bg=C["section_bg"])
+        sh.pack(fill="x", padx=10, pady=(4, 6))
+        self._mk_btn(sh, "+ Adicionar",
+                     self._abrir_adicionar_schedule).pack(side="right")
+
+        list_wrap = tk.Frame(sched_card, bg=C["section_bg"])
+        list_wrap.pack(fill="x", padx=10, pady=(0, 8))
+        self._sched_canvas = tk.Canvas(list_wrap, bg=C["section_bg"],
+                                       highlightthickness=0, height=150)
         self._sched_scroll = tk.Scrollbar(list_wrap, orient="vertical",
                                           command=self._sched_canvas.yview)
-        self._sched_inner = tk.Frame(self._sched_canvas, bg=C["card"])
-        self._sched_inner.bind(
-            "<Configure>",
-            lambda e: self._sched_canvas.configure(
-                scrollregion=self._sched_canvas.bbox("all"))
-        )
+        self._sched_inner = tk.Frame(self._sched_canvas, bg=C["section_bg"])
+        self._sched_inner.bind("<Configure>", lambda e: self._sched_canvas.configure(
+            scrollregion=self._sched_canvas.bbox("all")))
         self._sched_win = self._sched_canvas.create_window(
             (0, 0), window=self._sched_inner, anchor="nw")
         self._sched_canvas.configure(yscrollcommand=self._sched_scroll.set)
-        # garante que o frame interno sempre ocupa toda a largura do canvas
-        self._sched_canvas.bind(
-            "<Configure>",
-            lambda e: self._sched_canvas.itemconfig(self._sched_win, width=e.width)
-        )
+        self._sched_canvas.bind("<Configure>",
+            lambda e: self._sched_canvas.itemconfig(self._sched_win, width=e.width))
         self._sched_canvas.pack(side="left", fill="both", expand=True)
         self._sched_scroll.pack(side="right", fill="y")
-
         self._render_schedules()
-        self._neon_btn(sched_card, "[ + add ]", self._abrir_adicionar_schedule,
-                       solid=True).pack(side="right", pady=(6, 2))
 
-        # ── Modo ──
-        self._section(body, "// modo")
-        modo_card = self._card(body)
+        # ── Modo + Status (side by side) ──
+        ms = tk.Frame(body, bg=C["bg"])
+        ms.pack(fill="x", padx=20, pady=(10, 0))
+        ms.columnconfigure(0, weight=1)
+        ms.columnconfigure(1, weight=2)
+
+        modo_card = tk.Frame(ms, bg=C["section_bg"],
+                             highlightbackground=C["border"], highlightthickness=1)
+        modo_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8), ipady=8, ipadx=10)
+        tk.Label(modo_card, text="// modo", font=("Consolas", 8),
+                 bg=C["section_bg"], fg=C["green"]).pack(anchor="w", pady=(4, 4))
         self.modo_var = tk.BooleanVar(value=self.cfg["modo_teste"])
-
-        modo_row = tk.Frame(modo_card, bg=C["card"])
-        modo_row.pack(fill="x")
-        tk.Label(modo_row, text="TEST_MODE =",
-                 font=("Consolas", 11),
-                 bg=C["card"], fg=C["muted"]).pack(side="left")
-        tk.Checkbutton(modo_row,
-                       variable=self.modo_var,
-                       text="true  (hover sem click)",
-                       font=("Consolas", 10),
-                       bg=C["card"], fg=C["green"],
-                       selectcolor=C["card"],
-                       activebackground=C["card"],
+        tk.Checkbutton(modo_card, variable=self.modo_var,
+                       text=" TEST_MODE",
+                       font=("Consolas", 10, "bold"),
+                       bg=C["section_bg"], fg=C["green"],
+                       selectcolor=C["input_bg"],
+                       activebackground=C["section_bg"],
                        activeforeground=C["green"],
-                       command=self._toggle_modo).pack(side="left", padx=8)
+                       command=self._toggle_modo).pack(anchor="w")
 
-        # ── Status ──
-        self._section(body, "// status")
-        stat_card = self._card(body)
+        stat_card = tk.Frame(ms, bg=C["section_bg"],
+                             highlightbackground=C["green"], highlightthickness=1)
+        stat_card.grid(row=0, column=1, sticky="nsew", ipady=8, ipadx=10)
+
+        stat_top = tk.Frame(stat_card, bg=C["section_bg"])
+        stat_top.pack(fill="x", pady=(4, 2))
+        tk.Label(stat_top, text="// status", font=("Consolas", 8),
+                 bg=C["section_bg"], fg=C["green"]).pack(side="left")
+        self._mk_btn(stat_top, "RUN", self._testar_agora,
+                     solid=True).pack(side="right")
 
         self.prox_lbl = tk.Label(stat_card, text="calculando...",
                                  font=("Consolas", 11, "bold"),
-                                 bg=C["card"], fg=C["green"])
+                                 bg=C["section_bg"], fg=C["green"])
         self.prox_lbl.pack(anchor="w")
-
         self.relogio_lbl = tk.Label(stat_card, text="",
-                                    font=("Consolas", 10),
-                                    bg=C["card"], fg=C["muted"])
+                                    font=("Consolas", 9),
+                                    bg=C["section_bg"], fg=C["muted"])
         self.relogio_lbl.pack(anchor="w")
         self._tick_relogio()
 
-        self._neon_btn(stat_card, "[ run ]", self._testar_agora,
-                       solid=True).pack(side="right", pady=(6, 2))
-
-        # ── Log ──
-        self._section(body, "// output")
-        log_frame = tk.Frame(body, bg=C["input_bg"],
-                             highlightbackground=C["green"],
-                             highlightthickness=1)
-        log_frame.pack(fill="both", expand=True)
-
-        self.log_text = tk.Text(log_frame,
+        # ── Output ──
+        self._section(body, "// output", padx=20)
+        log_outer = tk.Frame(body, bg=C["section_bg"],
+                             highlightbackground=C["border"], highlightthickness=1)
+        log_outer.pack(fill="both", expand=True, padx=20, pady=(0, 14))
+        self.log_text = tk.Text(log_outer,
                                 bg=C["input_bg"], fg=C["text"],
-                                font=("Consolas", 9),
+                                font=("Consolas", 11),
                                 relief="flat", bd=6,
-                                state="disabled", height=10)
+                                state="disabled", height=8)
         self.log_text.pack(fill="both", expand=True)
-
         self.log_text.tag_config("ok",    foreground=C["green"])
         self.log_text.tag_config("erro",  foreground=C["red"])
         self.log_text.tag_config("teste", foreground=C["amber"])
@@ -1000,73 +1085,109 @@ class BrunoPontoApp:
 
         self._atualizar_banner()
 
-    def _section(self, parent, titulo):
-        tk.Label(parent, text=titulo,
-                 font=("Consolas", 8),
-                 bg=CORES["bg"], fg=CORES["green"]).pack(
-                     anchor="w", pady=(10, 2))
+    def _section(self, parent, titulo, padx=0):
+        f = tk.Frame(parent, bg=CORES["bg"])
+        f.pack(fill="x", padx=padx, pady=(12, 4))
+        tk.Label(f, text=titulo, font=("Consolas", 8, "bold"),
+                 bg=CORES["bg"], fg=CORES["green"]).pack(side="left")
+        tk.Frame(f, bg=CORES["border"], height=1).pack(
+            side="left", fill="x", expand=True, padx=(8, 0), pady=5)
 
     def _card(self, parent):
-        f = tk.Frame(parent, bg=CORES["card"],
+        f = tk.Frame(parent, bg=CORES["section_bg"],
                      highlightbackground=CORES["border"],
                      highlightthickness=1)
-        f.pack(fill="x", pady=(0, 4), ipady=6, ipadx=8)
+        f.pack(fill="x", padx=20, pady=(0, 4))
         return f
 
-    def _neon_btn(self, parent, txt, cmd, dim=False, solid=False):
+    def _mk_btn(self, parent, txt, cmd, solid=False):
+        C = CORES
         if solid:
             return tk.Button(parent, text=txt,
-                             bg=CORES["green"], fg=CORES["bg"],
+                             bg=C["green"], fg=C["bg"],
                              font=("Consolas", 10, "bold"),
                              relief="flat", cursor="hand2",
-                             activebackground=CORES["green_d"],
-                             activeforeground=CORES["bg"],
-                             command=cmd)
-        cor_fg = CORES["muted"] if dim else CORES["green"]
-        cor_hl = CORES["border"] if dim else CORES["green"]
+                             activebackground=C["green_d"],
+                             activeforeground=C["bg"],
+                             command=cmd, padx=10)
         return tk.Button(parent, text=txt,
-                         bg=CORES["card"], fg=cor_fg,
-                         font=("Consolas", 10, "bold"),
+                         bg=C["section_bg"], fg=C["muted"],
+                         font=("Consolas", 9),
                          relief="flat", cursor="hand2",
-                         highlightbackground=cor_hl,
+                         highlightbackground=C["border"],
                          highlightthickness=1,
-                         activebackground=CORES["card"],
-                         activeforeground=CORES["green"],
-                         command=cmd)
+                         activebackground=C["section_bg"],
+                         activeforeground=C["green"],
+                         command=cmd, padx=8)
+
+    def _neon_btn(self, parent, txt, cmd, dim=False, solid=False):
+        return self._mk_btn(parent, txt, cmd, solid=solid)
+
+    def _grid_input(self, parent, label, attr, value, r, c,
+                    show="", toggle=False, span=1):
+        C = CORES
+        frame = tk.Frame(parent, bg=C["section_bg"])
+        frame.grid(row=r, column=c, columnspan=span,
+                   sticky="ew", padx=(0 if c == 0 else 8, 0), pady=3)
+        tk.Label(frame, text=label, font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(anchor="w")
+        entry_row = tk.Frame(frame, bg=C["section_bg"])
+        entry_row.pack(fill="x")
+        var = tk.StringVar(value=value)
+        setattr(self, attr, var)
+        e = tk.Entry(entry_row, textvariable=var, show=show,
+                     font=("Consolas", 11),
+                     bg=C["input_bg"], fg=C["green"],
+                     insertbackground=C["green"],
+                     relief="flat", bd=4)
+        e.pack(side="left", fill="x", expand=True)
+        if toggle and show:
+            def _tog(entry=e, char=show):
+                if entry.cget("show") == "":
+                    entry.config(show=char)
+                    btn.config(text="mostrar")
+                else:
+                    entry.config(show="")
+                    btn.config(text="ocultar")
+            btn = tk.Button(entry_row, text="mostrar",
+                            font=("Consolas", 8), bg=C["section_bg"],
+                            fg=C["muted"], relief="flat", cursor="hand2",
+                            activebackground=C["section_bg"],
+                            activeforeground=C["green"],
+                            command=_tog, padx=4)
+            btn.pack(side="right")
 
     def _row_input(self, parent, label, attr, value, show="", toggle=False):
-        row = tk.Frame(parent, bg=CORES["card"])
+        C = CORES
+        row = tk.Frame(parent, bg=C["section_bg"])
         row.pack(fill="x", pady=3)
         tk.Label(row, text=f"{label:<20}", anchor="w",
                  font=("Consolas", 10),
-                 bg=CORES["card"], fg=CORES["muted"]).pack(side="left")
+                 bg=C["section_bg"], fg=C["muted"]).pack(side="left")
         var = tk.StringVar(value=value)
         setattr(self, attr, var)
-        e = tk.Entry(row, textvariable=var,
-                     show=show,
+        e = tk.Entry(row, textvariable=var, show=show,
                      font=("Consolas", 11),
-                     bg=CORES["input_bg"], fg=CORES["green"],
-                     insertbackground=CORES["green"],
+                     bg=C["input_bg"], fg=C["green"],
+                     insertbackground=C["green"],
                      relief="flat", bd=4, width=20)
         e.pack(side="left")
-
         if toggle and show:
             def _toggle(entry=e, char=show):
                 if entry.cget("show") == "":
                     entry.config(show=char)
-                    btn.config(text="[ mostrar ]")
+                    btn.config(text="mostrar")
                 else:
                     entry.config(show="")
-                    btn.config(text="[ ocultar ]")
-
-            btn = tk.Button(row, text="[ mostrar ]",
-                            bg=CORES["card"], fg=CORES["muted"],
+                    btn.config(text="ocultar")
+            btn = tk.Button(row, text="mostrar",
+                            bg=C["section_bg"], fg=C["muted"],
                             font=("Consolas", 9),
                             relief="flat", cursor="hand2",
-                            highlightbackground=CORES["border"],
+                            highlightbackground=C["border"],
                             highlightthickness=1,
-                            activebackground=CORES["card"],
-                            activeforeground=CORES["green"],
+                            activebackground=C["section_bg"],
+                            activeforeground=C["green"],
                             command=_toggle)
             btn.pack(side="left", padx=(6, 0))
 
@@ -1074,62 +1195,79 @@ class BrunoPontoApp:
         for w in self._sched_inner.winfo_children():
             w.destroy()
 
+        C = CORES
         DIAS_ABR = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
         schedules = self.cfg.get("schedules", [])
 
         if not schedules:
             tk.Label(self._sched_inner, text="nenhum schedule cadastrado.",
-                     font=("Consolas", 9), bg=CORES["card"],
-                     fg=CORES["muted"]).pack(anchor="w", padx=6, pady=6)
+                     font=("Consolas", 9), bg=C["section_bg"],
+                     fg=C["muted"]).pack(anchor="w", padx=8, pady=8)
             return
 
         for i, s in enumerate(schedules):
             ativo = s.get("ativo", True)
-            cor   = CORES["green"] if ativo else CORES["muted"]
+            cor   = C["green"] if ativo else C["muted"]
 
-            row = tk.Frame(self._sched_inner, bg=CORES["card"])
-            row.pack(fill="x", padx=4, pady=2)
+            row = tk.Frame(self._sched_inner, bg=C["section_bg"],
+                           highlightbackground=C["border"], highlightthickness=1)
+            row.pack(fill="x", pady=1)
 
-            # botões empacotados ANTES dos labels para garantir espaço à direita
-            tk.Button(row, text="[ del ]",
-                      bg=CORES["card"], fg=CORES["red"],
-                      font=("Consolas", 8, "bold"), relief="flat", cursor="hand2",
-                      highlightbackground=CORES["red"], highlightthickness=1,
-                      activebackground=CORES["card"], activeforeground=CORES["red"],
-                      command=lambda idx=i: self._remover_schedule(idx)
-                      ).pack(side="right", padx=(2, 4))
+            tk.Button(row, text="🗑",
+                      bg=C["section_bg"], fg=C["red"],
+                      font=("Segoe UI Emoji", 11), relief="flat", cursor="hand2",
+                      activebackground=C["section_bg"], activeforeground=C["red"],
+                      command=lambda idx=i: self._remover_schedule(idx),
+                      padx=6).pack(side="right")
 
-            self._neon_btn(row, "[ ed ]",
-                           lambda idx=i: self._abrir_editar_schedule(idx),
-                           dim=True).pack(side="right", padx=2)
+            tk.Button(row, text="✏",
+                      bg=C["section_bg"], fg=C["muted"],
+                      font=("Segoe UI Emoji", 11), relief="flat", cursor="hand2",
+                      activebackground=C["section_bg"], activeforeground=C["green"],
+                      command=lambda idx=i: self._abrir_editar_schedule(idx),
+                      padx=6).pack(side="right")
 
-            tk.Label(row, text="●", font=("Consolas", 10),
-                     bg=CORES["card"], fg=cor).pack(side="left")
+            tk.Label(row, text="●", font=("Consolas", 8),
+                     bg=C["section_bg"], fg=cor, padx=6).pack(side="left")
 
-            horas_str = "  ".join(s.get("horarios", []))
-            tk.Label(row, text=f" {s['nome']}  {horas_str}",
-                     font=("Consolas", 10, "bold"),
-                     bg=CORES["card"], fg=cor).pack(side="left")
+            tk.Label(row, text=s["nome"], font=("Consolas", 10, "bold"),
+                     bg=C["section_bg"], fg=cor).pack(side="left")
+
+            horas_str = " | ".join(s.get("horarios", []))
+            tk.Label(row, text=f"  {horas_str}  ",
+                     font=("Consolas", 9),
+                     bg=C["input_bg"], fg=C["text"],
+                     padx=4, pady=1).pack(side="left", padx=4)
 
             dias_str = " ".join(DIAS_ABR[d] for d in sorted(s.get("dias", [])))
-            tk.Label(row, text=f"  [{dias_str}]",
-                     font=("Consolas", 8), bg=CORES["card"],
-                     fg=CORES["muted"]).pack(side="left")
+            tk.Label(row, text=f" {dias_str} ",
+                     font=("Consolas", 8),
+                     bg=C["input_bg"], fg=C["amber"] if s.get("data_fim") else C["muted"],
+                     padx=2, pady=1).pack(side="left", padx=2)
 
             if s.get("data_fim"):
-                tk.Label(row, text=f"  até {s['data_fim']}",
-                         font=("Consolas", 8), bg=CORES["card"],
-                         fg=CORES["amber"]).pack(side="left")
+                fim_br = EditarScheduleWindow._iso_to_br(s["data_fim"])
+                tk.Label(row, text=f"até {fim_br}",
+                         font=("Consolas", 8), bg=C["section_bg"],
+                         fg=C["amber"]).pack(side="left")
 
     # ── Lógica de UI ─────────────────────────────────
 
     def _salvar_credenciais(self):
         self.cfg["codigo_empregador"] = self.codigo_var.get().strip()
         self.cfg["pin"]               = self.pin_var.get().strip()
+        self.cfg["telegram_token"]    = self.telegram_token_var.get().strip()
+        self.cfg["telegram_chat_id"]  = self.telegram_chat_id_var.get().strip()
         save_config(self.cfg)
         rebuild_schedule(self.cfg, self)
         self.add_log("Credenciais salvas.", "ok")
         messagebox.showinfo(APP_NAME, "Credenciais salvas com sucesso!", parent=self.root)
+
+    def _testar_telegram(self):
+        self.cfg["telegram_token"]   = self.telegram_token_var.get().strip()
+        self.cfg["telegram_chat_id"] = self.telegram_chat_id_var.get().strip()
+        save_config(self.cfg)
+        self._enviar_telegram("✅ Bruno Ponto: conexão com Telegram funcionando!")
 
     def _toggle_modo(self):
         self.cfg["modo_teste"] = self.modo_var.get()
@@ -1139,16 +1277,27 @@ class BrunoPontoApp:
         self.add_log(f"Modo alterado para: {modo}", "info")
 
     def _atualizar_banner(self):
+        C = CORES
         if self.cfg["modo_teste"]:
-            self.teste_banner.config(bg=CORES["card"])
+            self.teste_banner.config(bg="#451a03")
             self.teste_lbl.config(
-                text="[ TEST_MODE = true ]  hover no botão — sem click",
-                bg=CORES["card"], fg=CORES["amber"])
+                text="● [ TEST_MODE = true ]  hover no botão — sem click",
+                bg="#451a03", fg=C["amber"])
+            self._banner_side_lbl.config(bg="#451a03", fg=C["muted"])
         else:
-            self.teste_banner.config(bg=CORES["card"])
-            self.teste_lbl.config(
-                text="[ TEST_MODE = false ]  ponto será registrado automaticamente",
-                bg=CORES["card"], fg=CORES["green"])
+            self.teste_banner.config(bg=C["bg"])
+            self.teste_lbl.config(text="", bg=C["bg"], fg=C["bg"])
+            self._banner_side_lbl.config(bg=C["bg"], fg=C["bg"])
+
+    def _toggle_telegram(self):
+        if self._telegram_visible:
+            self._telegram_frame.pack_forget()
+            self._telegram_visible = False
+            self._tg_toggle_btn.config(text="▶  Telegram", fg=CORES["muted"])
+        else:
+            self._telegram_frame.pack(fill="x", padx=10, after=self._tg_header)
+            self._telegram_visible = True
+            self._tg_toggle_btn.config(text="▼  Telegram", fg=CORES["green"])
 
     def _abrir_adicionar_schedule(self):
         EditarScheduleWindow(
@@ -1201,6 +1350,22 @@ class BrunoPontoApp:
         self.root.deiconify()
         self.root.lift()
         AlertaWindow(self.root, hora, agora, modo_teste)
+
+    def _enviar_telegram(self, mensagem: str):
+        token   = self.cfg.get("telegram_token",   "").strip()
+        chat_id = self.cfg.get("telegram_chat_id", "").strip()
+        if not token or not chat_id:
+            return
+        def _enviar():
+            try:
+                url  = f"https://api.telegram.org/bot{token}/sendMessage"
+                data = urllib.parse.urlencode({"chat_id": chat_id, "text": mensagem}).encode()
+                urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=10)
+                self.root.after(0, lambda: self.add_log("Telegram: mensagem enviada.", "ok"))
+            except Exception as e:
+                log.error(f"Telegram erro: {e}")
+                self.root.after(0, lambda: self.add_log(f"Telegram erro: {e}", "erro"))
+        threading.Thread(target=_enviar, daemon=True).start()
 
     def add_log(self, msg: str, tag: str = "info"):
         ts = datetime.now().strftime("%H:%M:%S")
