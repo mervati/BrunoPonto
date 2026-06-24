@@ -2034,7 +2034,21 @@ class BrunoPontoApp:
     def _processar_cmd_telegram(self, cmd: str):
         _ABR = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
-        if cmd == "/ping":
+        if cmd == "/?":
+            self._tg_send(
+                "📋 Comandos disponíveis — Bruno Ponto\n\n"
+                "/ping       → Confirma que o app está ativo\n"
+                "/status     → Modo, próxima batida e heartbeat\n"
+                "/schedules  → Lista todos os agendamentos\n"
+                "/ferias     → Status do modo férias\n"
+                "/log        → Últimas 5 entradas do log\n"
+                "/dia        → Batidas de hoje\n"
+                "/semana     → Batidas dos últimos 7 dias\n"
+                "/mes        → Batidas dos últimos 30 dias\n"
+                "/?          → Esta mensagem"
+            )
+
+        elif cmd == "/ping":
             agora = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
             self._tg_send(f"🟢 Bruno Ponto está ativo.\n⏱ {agora}")
 
