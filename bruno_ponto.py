@@ -334,6 +334,27 @@ def _preencher_formulario(driver, cfg: dict, modo_teste: bool = False):
 # ──────────────────────────────────────────────────────
 #  LÓGICA DE PONTO
 # ──────────────────────────────────────────────────────
+def _get_coordenadas_ip():
+    """Obtém lat/lng + cidade via IP geolocation. Retorna (lat, lng, label)."""
+    try:
+        req = urllib.request.Request(
+            "http://ip-api.com/json/",
+            headers={"User-Agent": "BrunoPonto"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read().decode())
+        if data.get("status") == "success":
+            lat    = float(data["lat"])
+            lng    = float(data["lon"])
+            cidade = data.get("city", "")
+            pais   = data.get("countryCode", "")
+            label  = f"{cidade}, {pais}" if cidade else ""
+            return lat, lng, label
+    except Exception as e:
+        log.warning(f"IP geolocation: {e}")
+    return None, None, ""
+
+
 def _mover_mouse_z():
     """Move o mouse em Z sem pyautogui — usa ctypes no Windows."""
     try:
@@ -412,6 +433,21 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
             with _driver_lock:
                 if _driver is None or not _driver_ativo(_driver):
                     _driver = _criar_driver()
+                    lat, lng, local = _get_coordenadas_ip()
+                    if lat and lng:
+                        try:
+                            _driver.execute_cdp_cmd(
+                                "Emulation.setGeolocationOverride",
+                                {"latitude": lat, "longitude": lng, "accuracy": 50}
+                            )
+                            geo_txt = (f"{local} ({lat:.4f}, {lng:.4f})"
+                                       if local else f"{lat:.4f}, {lng:.4f}")
+                            log.info(f"Geolocalização: {geo_txt}")
+                            if modo_teste:
+                                app_ref.root.after(0, lambda t=geo_txt: app_ref.add_log(
+                                    f"[TESTE] Localização: {t}", "teste"))
+                        except Exception as e:
+                            log.warning(f"Geolocalização CDP: {e}")
 
                 _driver.get(URL_PONTO)
                 _preencher_formulario(_driver, cfg, modo_teste=modo_teste)
