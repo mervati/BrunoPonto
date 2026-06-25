@@ -1916,7 +1916,7 @@ class BrunoPontoApp:
                     horas_str = ", ".join(sorted(conflito))
                     messagebox.showerror(
                         "Conflito de horário",
-                        f"Já existe uma batida ativa às {horas_str}.\n('{outro.get('nome', '')}')",
+                        f"O schedule '{outro.get('nome', '')}' já está ativo com o mesmo horário ({horas_str}).",
                         parent=self)
                     return
         s["ativo"] = ativando
