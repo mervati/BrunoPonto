@@ -94,6 +94,7 @@ DEFAULT_CONFIG = {
     "ferias_ativo":         False,
     "ferias_inicio":        None,             # "YYYY-MM-DD"
     "ferias_fim":           None,             # "YYYY-MM-DD"
+    "hc_ping_url":          "",               # healthchecks.io ping URL
 }
 
 CORES = {
@@ -1502,6 +1503,33 @@ class BrunoPontoApp:
         self._mk_btn(vac_inner, "Salvar férias", self._salvar_ferias,
                      solid=True).pack(anchor="e", pady=(10, 0))
 
+        # ── Healthchecks.io ───────────────────────────────────
+        self._section_info(body, "// healthchecks.io", padx=20,
+            tooltip="Dead man's switch: o app envia um ping a cada 5 minutos.\nSe os pings pararem, o healthchecks.io avisa você no Telegram.\nCrie um check em healthchecks.io e cole a URL de ping aqui.")
+        hc_card = self._card(body)
+        hc_inner = tk.Frame(hc_card, bg=C["section_bg"])
+        hc_inner.pack(fill="x", padx=10, pady=(8, 10))
+
+        tk.Label(hc_inner, text="URL de ping:",
+                 font=("Consolas", 9),
+                 bg=C["section_bg"], fg=C["muted"]).pack(anchor="w")
+        hc_url_row = tk.Frame(hc_inner, bg=C["section_bg"])
+        hc_url_row.pack(fill="x", pady=(4, 0))
+        self.hc_url_var = tk.StringVar(
+            value=self.cfg.get("hc_ping_url", ""))
+        tk.Entry(hc_url_row, textvariable=self.hc_url_var,
+                 font=("Consolas", 10), width=48,
+                 bg=C["input_bg"], fg=C["green"],
+                 insertbackground=C["green"],
+                 relief="flat", bd=3).pack(side="left", padx=(0, 6))
+        self._field_info(hc_url_row,
+            "URL fornecida pelo healthchecks.io para este check.\nExemplo: https://hc-ping.com/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").pack(side="left")
+
+        hc_btn_row = tk.Frame(hc_inner, bg=C["section_bg"])
+        hc_btn_row.pack(anchor="e", pady=(10, 0))
+        self._mk_btn(hc_btn_row, "Testar ping", self._testar_hc).pack(side="left", padx=(0, 8))
+        self._mk_btn(hc_btn_row, "Salvar", self._salvar_hc, solid=True).pack(side="left")
+
     def _section(self, parent, titulo, padx=0):
         f = tk.Frame(parent, bg=CORES["bg"])
         f.pack(fill="x", padx=padx, pady=(12, 4))
@@ -1804,6 +1832,29 @@ class BrunoPontoApp:
         rebuild_schedule(self.cfg, self)
         self.add_log("Configurações de férias salvas.", "ok")
 
+    # ── Healthchecks.io ───────────────────────────────────────
+
+    def _salvar_hc(self):
+        url = self.hc_url_var.get().strip()
+        self.cfg["hc_ping_url"] = url
+        save_config(self.cfg)
+        self.add_log("URL do healthchecks.io salva.", "ok")
+
+    def _testar_hc(self):
+        url = self.hc_url_var.get().strip()
+        if not url:
+            self.add_log("Informe a URL do healthchecks.io antes de testar.", "warn")
+            return
+        def _ping():
+            try:
+                urllib.request.urlopen(
+                    urllib.request.Request(url, headers={"User-Agent": "BrunoPonto"}),
+                    timeout=10)
+                self.after(0, lambda: self.add_log("Ping enviado com sucesso.", "ok"))
+            except Exception as e:
+                self.after(0, lambda: self.add_log(f"Erro ao enviar ping: {e}", "erro"))
+        threading.Thread(target=_ping, daemon=True).start()
+
     def _atualizar_banner(self):
         C = CORES
         if self.cfg["modo_teste"]:
@@ -1937,6 +1988,16 @@ class BrunoPontoApp:
             if _hb_counter >= 30:   # 30 × 10s = 5 min
                 _hb_counter = 0
                 self._update_heartbeat()
+                url = self.cfg.get("hc_ping_url", "").strip()
+                if url:
+                    def _ping(u=url):
+                        try:
+                            urllib.request.urlopen(
+                                urllib.request.Request(u, headers={"User-Agent": "BrunoPonto"}),
+                                timeout=10)
+                        except Exception as e:
+                            log.warning(f"healthchecks.io ping erro: {e}")
+                    threading.Thread(target=_ping, daemon=True).start()
             time.sleep(10)
 
     # ── Watchdog ─────────────────────────────────────
