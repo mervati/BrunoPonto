@@ -1083,10 +1083,10 @@ class BrunoPontoApp:
         self.root.geometry(f"{w}x{h}")
         self._center()
 
-        self._build_ui()
         self._tray_icon   = None
         self._tray_estado = "normal"  # "normal" | "alerta" | "executando"
         _icones_tray()
+        self._build_ui()
         self._setup_tray()
         self.root.bind("<Unmap>", self._on_unmap)
         self.root.protocol("WM_DELETE_WINDOW", self._minimizar_para_tray)
