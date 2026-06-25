@@ -2140,9 +2140,9 @@ class BrunoPontoApp:
             total = max(rest, 3600)
         pct = rest / total if total > 0 else 0
         pct = max(0.0, min(1.0, pct))
-        if rest <= 300:
+        if rest <= 600:
             cor = C["amber"]
-        elif rest <= 600:
+        elif rest <= 1800:
             cor = "#A3E635"
         else:
             cor = C["green"]
