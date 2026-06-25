@@ -262,16 +262,15 @@ def _criar_driver():
 
     # Permissões concedidas automaticamente — evita popups de câmera e localização
     _PREFS = {
-        "profile.default_content_setting_values.geolocation":       1,
-        "profile.default_content_setting_values.media_stream_camera": 1,
-        "profile.default_content_setting_values.media_stream_mic":  1,
-        "profile.default_content_setting_values.notifications":     2,
+        "profile.default_content_setting_values.geolocation":        1,
+        "profile.default_content_setting_values.media_stream_camera": 2,
+        "profile.default_content_setting_values.media_stream_mic":    2,
+        "profile.default_content_setting_values.notifications":       2,
     }
 
     try:
         opts = ChromeOptions()
         opts.add_argument("--start-maximized")
-        opts.add_argument("--use-fake-ui-for-media-stream")   # suprime popup de câmera/mic
         opts.add_experimental_option("excludeSwitches", ["enable-automation"])
         opts.add_experimental_option("useAutomationExtension", False)
         opts.add_experimental_option("prefs", _PREFS)
@@ -282,7 +281,6 @@ def _criar_driver():
     try:
         opts = EdgeOptions()
         opts.add_argument("--start-maximized")
-        opts.add_argument("--use-fake-ui-for-media-stream")
         opts.add_experimental_option("prefs", _PREFS)
         return webdriver.Edge(options=opts)
     except Exception as e:
