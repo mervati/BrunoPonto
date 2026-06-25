@@ -95,6 +95,7 @@ DEFAULT_CONFIG = {
     "ferias_inicio":        None,             # "YYYY-MM-DD"
     "ferias_fim":           None,             # "YYYY-MM-DD"
     "hc_ping_url":          "",               # healthchecks.io ping URL
+    "notif_popup_prod":     True,             # popup tkinter ao bater ponto em produção
 }
 
 CORES = {
@@ -511,6 +512,15 @@ def _cinco_min_antes(hora_str: str) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 def _mostrar_aviso(app_ref, hora_label: str):
+    if HAS_TRAY and app_ref._tray_icon:
+        try:
+            app_ref._tray_icon.notify(
+                f"Ponto automático em 5 minutos → {hora_label}",
+                "Bruno Ponto"
+            )
+            return
+        except Exception:
+            pass
     def _abrir():
         app_ref.root.deiconify()
         app_ref.root.lift()
@@ -1523,6 +1533,26 @@ class BrunoPontoApp:
         self._mk_btn(vac_inner, "Salvar férias", self._salvar_ferias,
                      solid=True).pack(anchor="e", pady=(10, 0))
 
+        # ── Notificações ──────────────────────────────────────
+        self._section_info(body, "// notificações", padx=20,
+            tooltip="Controla quais popups aparecem na tela.\nO aviso de 5 minutos antes usa notificação nativa do Windows.")
+        notif_card = self._card(body)
+        notif_inner = tk.Frame(notif_card, bg=C["section_bg"])
+        notif_inner.pack(fill="x", padx=10, pady=(8, 10))
+
+        self.notif_popup_prod_var = tk.BooleanVar(value=self.cfg.get("notif_popup_prod", True))
+        tk.Checkbutton(notif_inner, variable=self.notif_popup_prod_var,
+                       text=" Popup ao bater ponto em produção",
+                       font=("Consolas", 10),
+                       bg=C["section_bg"], fg=C["text"],
+                       selectcolor=C["input_bg"],
+                       activebackground=C["section_bg"],
+                       activeforeground=C["green"],
+                       command=self._toggle_notif_popup_prod).pack(anchor="w")
+        tk.Label(notif_inner,
+                 text="O aviso de 5 min antes usa sempre notificação nativa do Windows.",
+                 font=("Consolas", 8), bg=C["section_bg"], fg=C["muted"]).pack(anchor="w", pady=(4, 0))
+
         # ── Healthchecks.io ───────────────────────────────────
         self._section_info(body, "// healthchecks.io", padx=20,
             tooltip="Dead man's switch: o app envia um ping a cada 5 minutos.\nSe os pings pararem, o healthchecks.io avisa você no Telegram.\nCrie um check em healthchecks.io e cole a URL de ping aqui.")
@@ -1852,6 +1882,12 @@ class BrunoPontoApp:
         rebuild_schedule(self.cfg, self)
         self.add_log("Configurações de férias salvas.", "ok")
 
+    def _toggle_notif_popup_prod(self):
+        self.cfg["notif_popup_prod"] = self.notif_popup_prod_var.get()
+        save_config(self.cfg)
+        estado = "ativado" if self.cfg["notif_popup_prod"] else "desativado"
+        self.add_log(f"Popup de produção {estado}.", "ok" if self.cfg["notif_popup_prod"] else "info")
+
     # ── Healthchecks.io ───────────────────────────────────────
 
     def _salvar_hc(self):
@@ -1963,6 +1999,8 @@ class BrunoPontoApp:
             self._toggle_modo()
 
     def show_alert(self, hora, agora, modo_teste):
+        if not modo_teste and not self.cfg.get("notif_popup_prod", True):
+            return
         self.root.deiconify()
         self.root.lift()
         AlertaWindow(self.root, hora, agora, modo_teste)
