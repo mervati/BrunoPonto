@@ -8,11 +8,19 @@ Automatiza o registro de ponto no sistema **Sólides/Tangerino**, executando os 
 
 - Registro automático de ponto via navegador (Chrome, Edge ou Firefox)
 - Múltiplos schedules com dias da semana, horários e datas de vigência
-- Aviso popup 5 minutos antes de cada batida
-- Popup de confirmação após o registro
+- Notificação nativa do Windows 5 minutos antes de cada batida
+- Notificação de confirmação após o registro (sucesso ou erro)
+- Indicador visual na bandeja: verde → normal, amarelo → < 30 min, âmbar → < 10 min, vermelho → executando
+- Barra de progresso regressiva até a próxima batida
+- Tooltip da bandeja mostra o próximo ponto e o tempo restante em tempo real
 - Minimiza para a bandeja do sistema (system tray)
 - Inicia automaticamente com o Windows
 - Modo teste: abre o navegador e preenche os campos sem clicar em Registrar
+- Modo férias: suspende todas as batidas durante um período configurado
+- Watchdog: alerta no Telegram se o scheduler ficar inativo por mais de X horas
+- Alerta de demora: avisa se o Selenium demorar mais que o esperado
+- Bot do Telegram com comandos para consultar status e histórico
+- Dead man's switch via healthchecks.io: alerta externo se o app parar de responder
 - PIN com opção de mostrar/ocultar
 - Configurações salvas localmente por máquina
 
@@ -23,7 +31,7 @@ Automatiza o registro de ponto no sistema **Sólides/Tangerino**, executando os 
 1. Execute o `BrunoPonto.exe`
 2. Preencha o **Código do Empregador** e o **PIN** na seção de credenciais
 3. Clique em **Salvar**
-4. Adicione os schedules desejados em **Horários**
+4. Adicione os schedules desejados em **// schedules**
 5. O programa ficará rodando em segundo plano e registrará o ponto automaticamente nos horários configurados
 
 ### Schedules
@@ -39,9 +47,40 @@ Cada schedule possui:
 | Expira em | Data limite de execução, opcional (DD/MM/AAAA) |
 | Habilitado | Ativa ou desativa o schedule sem excluí-lo |
 
+Não é permitido ter dois schedules ativos com o mesmo horário nos mesmos dias.
+
 ### Modo teste
 
-Com o modo teste ativo, o programa abre o navegador e preenche as credenciais, mas **não clica em Registrar**. Útil para validar a configuração antes de ativar em produção. Após clicar em `[ run ]`, o modo é desativado automaticamente.
+Com o modo teste ativo, o programa abre o navegador e preenche as credenciais, mas **não clica em Registrar**. Útil para validar a configuração antes de ativar em produção.
+
+---
+
+## Bot do Telegram
+
+Configure o token e o chat ID na aba **Configurações → // telegram**. Comandos disponíveis:
+
+| Comando | Descrição |
+|---|---|
+| `/?` | Lista todos os comandos |
+| `/ping` | Confirma que o app está rodando |
+| `/status` | Modo, próxima batida e último heartbeat |
+| `/schedules` | Lista todos os schedules configurados |
+| `/ferias` | Informa se o modo férias está ativo e as datas |
+| `/log` | Últimas 5 linhas do log |
+| `/dia` | Batidas reais do dia |
+| `/semana` | Batidas reais dos últimos 7 dias |
+| `/mes` | Batidas reais dos últimos 30 dias |
+| `/teste_d` | Batidas de teste do dia |
+| `/teste_s` | Batidas de teste dos últimos 7 dias |
+| `/teste_m` | Batidas de teste dos últimos 30 dias |
+
+---
+
+## Dead man's switch (healthchecks.io)
+
+O app envia um ping a cada minuto para a URL configurada em **Configurações → // healthchecks.io**. Se os pings pararem (app fechado ou travado), o healthchecks.io dispara um alerta externo.
+
+Configure o webhook no healthchecks.io apontando para a API do Telegram para receber o alerta no mesmo bot.
 
 ---
 
