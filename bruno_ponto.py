@@ -1917,7 +1917,7 @@ class BrunoPontoApp:
                     messagebox.showerror(
                         "Conflito de horário",
                         f"O schedule '{outro.get('nome', '')}' já está ativo com o mesmo horário ({horas_str}).",
-                        parent=self)
+                        parent=self.root)
                     return
         s["ativo"] = ativando
         save_config(self.cfg)
