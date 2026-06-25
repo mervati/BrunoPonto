@@ -987,22 +987,23 @@ class EditarScheduleWindow(tk.Toplevel):
                     data_fim = data_iso
 
         NMS = self.DIAS_LABELS
-        for i, s in enumerate(self.existing):
-            if i == self.edit_index:
-                continue
-            if not s.get("ativo", True):
-                continue
-            horas_existentes = s.get("horarios", [s.get("horario", "")])
-            for hora in horarios:
-                if hora in horas_existentes:
-                    conflito = set(s.get("dias", [])) & set(dias)
-                    if conflito:
-                        dias_str = ", ".join(NMS[d] for d in sorted(conflito))
-                        messagebox.showerror(
-                            "Conflito de horário",
-                            f"Já existe uma batida às {hora} em: {dias_str}\n('{s.get('nome', '')}')",
-                            parent=self)
-                        return
+        if ativo:
+            for i, s in enumerate(self.existing):
+                if i == self.edit_index:
+                    continue
+                if not s.get("ativo", True):
+                    continue
+                horas_existentes = s.get("horarios", [s.get("horario", "")])
+                for hora in horarios:
+                    if hora in horas_existentes:
+                        conflito = set(s.get("dias", [])) & set(dias)
+                        if conflito:
+                            dias_str = ", ".join(NMS[d] for d in sorted(conflito))
+                            messagebox.showerror(
+                                "Conflito de horário",
+                                f"Já existe uma batida às {hora} em: {dias_str}\n('{s.get('nome', '')}')",
+                                parent=self)
+                            return
 
         self.callback(
             {"nome": nome, "horarios": sorted(horarios), "dias": sorted(dias),
