@@ -1901,8 +1901,25 @@ class BrunoPontoApp:
         self.add_log(f"Schedule '{entry['nome']}' {acao}.", "ok")
 
     def _toggle_schedule_ativo(self, idx):
-        s = self.cfg.get("schedules", [])[idx]
-        s["ativo"] = not s.get("ativo", True)
+        schedules = self.cfg.get("schedules", [])
+        s = schedules[idx]
+        ativando = not s.get("ativo", True)
+        if ativando:
+            horas_s = set(s.get("horarios", [s.get("horario", "")]))
+            dias_s  = set(s.get("dias", []))
+            for i, outro in enumerate(schedules):
+                if i == idx or not outro.get("ativo", True):
+                    continue
+                horas_o = set(outro.get("horarios", [outro.get("horario", "")]))
+                conflito = horas_s & horas_o
+                if conflito and dias_s & set(outro.get("dias", [])):
+                    horas_str = ", ".join(sorted(conflito))
+                    messagebox.showerror(
+                        "Conflito de horário",
+                        f"Já existe uma batida ativa às {horas_str}.\n('{outro.get('nome', '')}')",
+                        parent=self)
+                    return
+        s["ativo"] = ativando
         save_config(self.cfg)
         rebuild_schedule(self.cfg, self)
         self._render_schedules()
