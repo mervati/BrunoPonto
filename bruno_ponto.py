@@ -2114,6 +2114,20 @@ class BrunoPontoApp:
                 novo = "normal"
             if novo != self._tray_estado:
                 self._set_tray_estado(novo)
+        if HAS_TRAY and self._tray_icon and self._tray_estado != "executando":
+            if prox:
+                rest = int((prox - now).total_seconds())
+                h_r, rem = divmod(max(rest, 0), 3600)
+                m_r, s_r = divmod(rem, 60)
+                if h_r > 0:
+                    tempo = f"{h_r}h {m_r:02d}m"
+                elif m_r > 0:
+                    tempo = f"{m_r}m {s_r:02d}s"
+                else:
+                    tempo = f"{s_r}s"
+                self._tray_icon.title = f"Bruno Ponto  —  próximo às {prox.strftime('%H:%M')} (em {tempo})"
+            else:
+                self._tray_icon.title = "Bruno Ponto"
         self._atualizar_barra(prox, now)
         self.root.after(1000, self._tick_relogio)
 
