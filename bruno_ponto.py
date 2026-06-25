@@ -990,6 +990,8 @@ class EditarScheduleWindow(tk.Toplevel):
         for i, s in enumerate(self.existing):
             if i == self.edit_index:
                 continue
+            if not s.get("ativo", True):
+                continue
             horas_existentes = s.get("horarios", [s.get("horario", "")])
             for hora in horarios:
                 if hora in horas_existentes:
