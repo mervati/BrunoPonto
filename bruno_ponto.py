@@ -116,13 +116,24 @@ CORES = {
     "teste":      "#f59e0b",
 }
 
-def _criar_icone_tray():
+def _criar_icone_tray(cor="#00FF41"):
     size = 64
     img  = Image.new("RGBA", (size, size), (9, 9, 9, 255))
     draw = ImageDraw.Draw(img)
-    draw.ellipse([8, 8, size - 8, size - 8], fill="#00FF41")
+    draw.ellipse([8, 8, size - 8, size - 8], fill=cor)
     draw.polygon([(24, 20), (24, 44), (44, 32)], fill="#090909")
     return img
+
+_ICONE_VERDE   = None
+_ICONE_AMARELO = None
+_ICONE_VERMELHO = None
+
+def _icones_tray():
+    global _ICONE_VERDE, _ICONE_AMARELO, _ICONE_VERMELHO
+    if HAS_TRAY and _ICONE_VERDE is None:
+        _ICONE_VERDE    = _criar_icone_tray("#00FF41")
+        _ICONE_AMARELO  = _criar_icone_tray("#F59E0B")
+        _ICONE_VERMELHO = _criar_icone_tray("#EF4444")
 
 
 logging.basicConfig(
@@ -407,6 +418,7 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
 
     def _registrar():
         global _driver
+        app_ref._set_tray_estado("executando")
         try:
             t_inicio = time.time()
             with _driver_lock:
@@ -447,6 +459,7 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=True))
                 app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=True,
                     template=cfg.get("telegram_mensagem", "")))
+                app_ref._set_tray_estado("normal")
             else:
                 ok_msg = f"✓ Ponto registrado às {hora_label}"
                 log.info(ok_msg)
@@ -461,11 +474,13 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=False))
                 app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=False,
                     template=cfg.get("telegram_mensagem", "")))
+                app_ref._set_tray_estado("normal")
 
         except Exception as e:
             err = f"Erro ao registrar: {e}"
             log.error(err)
             app_ref.root.after(0, lambda: app_ref.add_log(err, "erro"))
+            app_ref._set_tray_estado("normal")
             now        = datetime.now()
             dia_semana = DIAS_PT[now.weekday()]
             data_fmt   = now.strftime("%d/%m/%Y")
@@ -1069,7 +1084,9 @@ class BrunoPontoApp:
         self._center()
 
         self._build_ui()
-        self._tray_icon = None
+        self._tray_icon   = None
+        self._tray_estado = "normal"  # "normal" | "alerta" | "executando"
+        _icones_tray()
         self._setup_tray()
         self.root.bind("<Unmap>", self._on_unmap)
         self.root.protocol("WM_DELETE_WINDOW", self._minimizar_para_tray)
@@ -1995,7 +2012,32 @@ class BrunoPontoApp:
         dia   = DIAS_PT[now.weekday()]
         agora = f"{dia}, {now.strftime('%d/%m/%Y  %H:%M:%S')}"
         self.relogio_lbl.config(text=agora)
+        if self._tray_estado != "executando":
+            prox = proximo_ponto(self.cfg)
+            if prox:
+                seg = (prox - now).total_seconds()
+                novo = "alerta" if 0 <= seg <= 300 else "normal"
+            else:
+                novo = "normal"
+            if novo != self._tray_estado:
+                self._set_tray_estado(novo)
         self.root.after(1000, self._tick_relogio)
+
+    def _set_tray_estado(self, estado: str):
+        self._tray_estado = estado
+        if not HAS_TRAY or self._tray_icon is None:
+            return
+        if estado == "executando":
+            icone = _ICONE_VERMELHO
+            titulo = "Bruno Ponto — registrando ponto..."
+        elif estado == "alerta":
+            icone = _ICONE_AMARELO
+            titulo = "Bruno Ponto — ponto em breve!"
+        else:
+            icone = _ICONE_VERDE
+            titulo = "Bruno Ponto"
+        self._tray_icon.icon  = icone
+        self._tray_icon.title = titulo
 
     # ── Scheduler ────────────────────────────────────
 
