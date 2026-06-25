@@ -2094,7 +2094,7 @@ class BrunoPontoApp:
             else:
                 h, rem = divmod(total, 3600)
                 m, s   = divmod(rem, 60)
-                txt = f"Próxima batida: {prox.strftime('%H:%M')}  (em {h:02d}h {m:02d}m)"
+                txt = f"Próxima batida: {prox.strftime('%H:%M')}"
         else:
             txt = "Nenhum horário agendado."
         self.prox_lbl.config(text=txt)
