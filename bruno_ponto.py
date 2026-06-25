@@ -512,20 +512,7 @@ def _cinco_min_antes(hora_str: str) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 def _mostrar_aviso(app_ref, hora_label: str):
-    if HAS_TRAY and app_ref._tray_icon:
-        try:
-            app_ref._tray_icon.notify(
-                f"Ponto automático em 5 minutos → {hora_label}",
-                "Bruno Ponto"
-            )
-            return
-        except Exception:
-            pass
-    def _abrir():
-        app_ref.root.deiconify()
-        app_ref.root.lift()
-        AvisoWindow(app_ref.root, hora_label)
-    app_ref.root.after(0, _abrir)
+    app_ref.root.after(0, lambda: AvisoWindow(app_ref.root, hora_label))
 
 def rebuild_schedule(cfg: dict, app_ref):
     schedule.clear()
@@ -631,43 +618,50 @@ def _ler_batidas_log(from_date) -> list:
 class AvisoWindow(tk.Toplevel):
     def __init__(self, parent, hora):
         super().__init__(parent)
-        self.title("bruno.ponto :: aviso")
+        self.title("bruno.ponto")
         self.configure(bg=CORES["bg"])
         self.resizable(False, False)
         self.attributes("-topmost", True)
+        self.attributes("-toolwindow", True)   # sem botão na barra de tarefas
 
+        w, h = 320, 110
         self.update_idletasks()
-        w, h = 420, 210
-        x = parent.winfo_rootx() + (parent.winfo_width()  - w) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x  = sw - w - 16
+        y  = sh - h - 56   # acima da barra de tarefas
         self.geometry(f"{w}x{h}+{x}+{y}")
 
-        tk.Frame(self, bg=CORES["amber"], height=2).pack(fill="x")
+        tk.Frame(self, bg=CORES["amber"], height=3).pack(fill="x")
 
-        tk.Label(self, text="[ AVISO ]",
-                 font=("Consolas", 20, "bold"),
-                 bg=CORES["bg"], fg=CORES["amber"]).pack(pady=(18, 4))
+        body = tk.Frame(self, bg=CORES["bg"])
+        body.pack(fill="both", expand=True, padx=12, pady=(8, 8))
 
-        tk.Label(self, text=f"ponto automático em 5 minutos  →  {hora}",
-                 font=("Consolas", 11),
-                 bg=CORES["bg"], fg=CORES["text"]).pack()
+        top = tk.Frame(body, bg=CORES["bg"])
+        top.pack(fill="x")
+        tk.Label(top, text="Bruno Ponto  —  aviso",
+                 font=("Consolas", 9, "bold"),
+                 bg=CORES["bg"], fg=CORES["amber"]).pack(side="left")
 
-        tk.Label(self, text="// o registro será feito automaticamente",
-                 font=("Consolas", 9),
-                 bg=CORES["bg"], fg=CORES["muted"]).pack(pady=4)
+        tk.Label(body, text=f"Ponto automático em 5 minutos  →  {hora}",
+                 font=("Consolas", 10),
+                 bg=CORES["bg"], fg=CORES["text"]).pack(anchor="w", pady=(4, 0))
 
-        tk.Button(self, text="[ fechar ]",
-                  bg=CORES["bg"], fg=CORES["amber"],
-                  font=("Consolas", 10, "bold"),
+        tk.Label(body, text="O registro será feito automaticamente.",
+                 font=("Consolas", 8),
+                 bg=CORES["bg"], fg=CORES["muted"]).pack(anchor="w")
+
+        tk.Button(body, text="OK",
+                  bg=CORES["amber"], fg=CORES["bg"],
+                  font=("Consolas", 9, "bold"),
                   relief="flat", cursor="hand2",
-                  highlightbackground=CORES["amber"],
-                  highlightthickness=1,
-                  activebackground=CORES["bg"],
-                  activeforeground=CORES["amber"],
-                  command=self.destroy).pack(pady=14)
+                  activebackground=CORES["amber"],
+                  activeforeground=CORES["bg"],
+                  padx=14,
+                  command=self.destroy).pack(anchor="e", pady=(6, 0))
 
-        # fecha sozinho 1 min antes de bater o ponto
-        self.after(240_000, self.destroy)
+        # fecha sozinho após 30 minutos
+        self.after(1_800_000, self.destroy)
 
 
 # ──────────────────────────────────────────────────────
