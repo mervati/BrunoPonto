@@ -25,6 +25,8 @@ import sys
 from datetime import datetime, timedelta
 
 import ctypes
+import subprocess
+import base64
 
 try:
     import winreg
@@ -95,7 +97,7 @@ DEFAULT_CONFIG = {
     "ferias_inicio":        None,             # "YYYY-MM-DD"
     "ferias_fim":           None,             # "YYYY-MM-DD"
     "hc_ping_url":          "",               # healthchecks.io ping URL
-    "notif_popup_prod":     True,             # popup tkinter ao bater ponto em produção
+    "notificacoes_ativas":  True,             # notificações nativas do Windows
 }
 
 CORES = {
@@ -135,6 +137,36 @@ def _icones_tray():
         _ICONE_VERDE    = _criar_icone_tray("#00FF41")
         _ICONE_AMARELO  = _criar_icone_tray("#F59E0B")
         _ICONE_VERMELHO = _criar_icone_tray("#EF4444")
+
+# AUMID do PowerShell — usado para mostrar toasts sem registro de app
+_PS_AUMID = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe"
+
+def _win_toast(titulo: str, mensagem: str):
+    """Exibe notificação nativa do Windows via PowerShell."""
+    xml = (
+        '<toast>'
+        '<visual><binding template="ToastGeneric">'
+        f'<text>{titulo}</text>'
+        f'<text>{mensagem}</text>'
+        '</binding></visual>'
+        '</toast>'
+    )
+    ps = f"""
+[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null
+[Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]|Out-Null
+$d=[Windows.Data.Xml.Dom.XmlDocument]::new()
+$d.LoadXml('{xml}')
+$t=[Windows.UI.Notifications.ToastNotification]::new($d)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{_PS_AUMID}').Show($t)
+"""
+    try:
+        enc = base64.b64encode(ps.encode("utf-16-le")).decode("ascii")
+        subprocess.Popen(
+            ["powershell", "-WindowStyle", "Hidden", "-EncodedCommand", enc],
+            creationflags=0x08000000
+        )
+    except Exception as e:
+        log.warning(f"win_toast erro: {e}")
 
 
 logging.basicConfig(
@@ -512,7 +544,8 @@ def _cinco_min_antes(hora_str: str) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 def _mostrar_aviso(app_ref, hora_label: str):
-    app_ref.root.after(0, lambda: AvisoWindow(app_ref.root, hora_label))
+    if app_ref.cfg.get("notificacoes_ativas", True):
+        _win_toast("Bruno Ponto", f"Ponto automático em 5 minutos  →  {hora_label}")
 
 def rebuild_schedule(cfg: dict, app_ref):
     schedule.clear()
@@ -1529,22 +1562,22 @@ class BrunoPontoApp:
 
         # ── Notificações ──────────────────────────────────────
         self._section_info(body, "// notificações", padx=20,
-            tooltip="Controla quais popups aparecem na tela.\nO aviso de 5 minutos antes usa notificação nativa do Windows.")
+            tooltip="Ativa ou desativa todas as notificações nativas do Windows.\nInclui: aviso 5 min antes, confirmação de batida e resultado de teste.")
         notif_card = self._card(body)
         notif_inner = tk.Frame(notif_card, bg=C["section_bg"])
         notif_inner.pack(fill="x", padx=10, pady=(8, 10))
 
-        self.notif_popup_prod_var = tk.BooleanVar(value=self.cfg.get("notif_popup_prod", True))
-        tk.Checkbutton(notif_inner, variable=self.notif_popup_prod_var,
-                       text=" Popup ao bater ponto em produção",
+        self.notif_var = tk.BooleanVar(value=self.cfg.get("notificacoes_ativas", True))
+        tk.Checkbutton(notif_inner, variable=self.notif_var,
+                       text=" Notificações ativas",
                        font=("Consolas", 10),
                        bg=C["section_bg"], fg=C["text"],
                        selectcolor=C["input_bg"],
                        activebackground=C["section_bg"],
                        activeforeground=C["green"],
-                       command=self._toggle_notif_popup_prod).pack(anchor="w")
+                       command=self._toggle_notificacoes).pack(anchor="w")
         tk.Label(notif_inner,
-                 text="O aviso de 5 min antes usa sempre notificação nativa do Windows.",
+                 text="Usa notificações nativas do Windows para todos os avisos.",
                  font=("Consolas", 8), bg=C["section_bg"], fg=C["muted"]).pack(anchor="w", pady=(4, 0))
 
         # ── Healthchecks.io ───────────────────────────────────
@@ -1876,11 +1909,11 @@ class BrunoPontoApp:
         rebuild_schedule(self.cfg, self)
         self.add_log("Configurações de férias salvas.", "ok")
 
-    def _toggle_notif_popup_prod(self):
-        self.cfg["notif_popup_prod"] = self.notif_popup_prod_var.get()
+    def _toggle_notificacoes(self):
+        self.cfg["notificacoes_ativas"] = self.notif_var.get()
         save_config(self.cfg)
-        estado = "ativado" if self.cfg["notif_popup_prod"] else "desativado"
-        self.add_log(f"Popup de produção {estado}.", "ok" if self.cfg["notif_popup_prod"] else "info")
+        estado = "ativadas" if self.cfg["notificacoes_ativas"] else "desativadas"
+        self.add_log(f"Notificações {estado}.", "ok" if self.cfg["notificacoes_ativas"] else "info")
 
     # ── Healthchecks.io ───────────────────────────────────────
 
@@ -1993,11 +2026,12 @@ class BrunoPontoApp:
             self._toggle_modo()
 
     def show_alert(self, hora, agora, modo_teste):
-        if not modo_teste and not self.cfg.get("notif_popup_prod", True):
+        if not self.cfg.get("notificacoes_ativas", True):
             return
-        self.root.deiconify()
-        self.root.lift()
-        AlertaWindow(self.root, hora, agora, modo_teste)
+        if modo_teste:
+            _win_toast("Bruno Ponto  [ TESTE ]", f"Hover executado — {hora}  ({agora})")
+        else:
+            _win_toast("Bruno Ponto  ✓", f"Ponto registrado às {hora}  ({agora})")
 
     def _enviar_telegram(self, mensagem: str):
         token   = self.cfg.get("telegram_token",   "").strip()
