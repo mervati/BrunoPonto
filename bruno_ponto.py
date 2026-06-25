@@ -583,6 +583,27 @@ def rebuild_schedule(cfg: dict, app_ref):
     return schedule.next_run()
 
 
+def _horario_anterior(cfg: dict):
+    """Retorna o horário agendado ativo imediatamente anterior ao atual."""
+    agora   = datetime.now()
+    hoje    = agora.weekday()
+    melhor  = None
+    for s in cfg.get("schedules", []):
+        if not s.get("ativo", True):
+            continue
+        if hoje not in s.get("dias", []):
+            continue
+        for hora_str in s.get("horarios", []):
+            try:
+                h, m = map(int, hora_str.split(":"))
+                dt = agora.replace(hour=h, minute=m, second=0, microsecond=0)
+                if dt < agora and (melhor is None or dt > melhor):
+                    melhor = dt
+            except Exception:
+                pass
+    return melhor
+
+
 def proximo_ponto(cfg: dict):
     """Retorna o datetime da próxima batida real, ignorando os avisos de 5min."""
     agora = datetime.now()
@@ -1310,6 +1331,14 @@ class BrunoPontoApp:
                                     font=("Consolas", 9),
                                     bg=C["section_bg"], fg=C["muted"])
         self.relogio_lbl.pack(anchor="w")
+
+        self._prog_canvas = tk.Canvas(stat_card, bg=C["section_bg"],
+                                      height=6, bd=0, highlightthickness=0)
+        self._prog_canvas.pack(fill="x", pady=(6, 2))
+        self._prog_lbl = tk.Label(stat_card, text="",
+                                   font=("Consolas", 8),
+                                   bg=C["section_bg"], fg=C["muted"])
+        self._prog_lbl.pack(anchor="w")
         self._tick_relogio()
 
         # Output
@@ -2078,8 +2107,8 @@ class BrunoPontoApp:
         dia   = DIAS_PT[now.weekday()]
         agora = f"{dia}, {now.strftime('%d/%m/%Y  %H:%M:%S')}"
         self.relogio_lbl.config(text=agora)
+        prox = proximo_ponto(self.cfg)
         if self._tray_estado != "executando":
-            prox = proximo_ponto(self.cfg)
             if prox:
                 seg = (prox - now).total_seconds()
                 novo = "alerta" if 0 <= seg <= 300 else "normal"
@@ -2087,7 +2116,50 @@ class BrunoPontoApp:
                 novo = "normal"
             if novo != self._tray_estado:
                 self._set_tray_estado(novo)
+        self._atualizar_barra(prox, now)
         self.root.after(1000, self._tick_relogio)
+
+    def _atualizar_barra(self, prox, now):
+        C   = CORES
+        w   = self._prog_canvas.winfo_width()
+        if w < 4:
+            self.root.after(100, lambda: self._atualizar_barra(prox, now))
+            return
+        self._prog_canvas.delete("all")
+        if not prox:
+            self._prog_canvas.create_rectangle(0, 0, w, 6, fill=C["input_bg"], outline="")
+            self._prog_lbl.config(text="")
+            return
+        rest = (prox - now).total_seconds()
+        if rest < 0:
+            rest = 0
+        prev = _horario_anterior(self.cfg)
+        if prev:
+            total = (prox - prev).total_seconds()
+        else:
+            total = max(rest, 3600)
+        pct = rest / total if total > 0 else 0
+        pct = max(0.0, min(1.0, pct))
+        if rest <= 300:
+            cor = C["amber"]
+        elif rest <= 600:
+            cor = "#A3E635"
+        else:
+            cor = C["green"]
+        self._prog_canvas.create_rectangle(0, 0, w, 6, fill=C["input_bg"], outline="")
+        filled = int(w * pct)
+        if filled > 0:
+            self._prog_canvas.create_rectangle(0, 0, filled, 6, fill=cor, outline="")
+        h_r = int(rest // 3600)
+        m_r = int((rest % 3600) // 60)
+        s_r = int(rest % 60)
+        if h_r > 0:
+            tempo = f"em {h_r}h {m_r:02d}m"
+        elif m_r > 0:
+            tempo = f"em {m_r}m {s_r:02d}s"
+        else:
+            tempo = f"em {s_r}s"
+        self._prog_lbl.config(text=tempo, fg=cor)
 
     def _set_tray_estado(self, estado: str):
         self._tray_estado = estado
