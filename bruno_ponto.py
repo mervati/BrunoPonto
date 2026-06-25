@@ -1985,7 +1985,7 @@ class BrunoPontoApp:
         while True:
             schedule.run_pending()
             _hb_counter += 1
-            if _hb_counter >= 30:   # 30 × 10s = 5 min
+            if _hb_counter >= 6:    # 6 × 10s = 1 min
                 _hb_counter = 0
                 self._update_heartbeat()
                 url = self.cfg.get("hc_ping_url", "").strip()
