@@ -59,9 +59,28 @@ Com o modo teste ativo, o programa abre o navegador e preenche as credenciais, m
 
 Configure o token e o chat ID na aba **Configurações → // telegram**. Comandos disponíveis:
 
+### Menu interativo (`/?`)
+
+O comando `/?` exibe um menu com botões clicáveis — basta tocar para executar o comando desejado:
+
+```
+📋 Bruno Ponto — selecione um comando:
+
+[ 🟢 Bater ponto ]  [ 🧪 Teste bater ]
+[ 📡 Ping ]         [ 📊 Status ]
+[ 📋 Schedules ]    [ 🏖 Férias ]
+[ 📄 Log ]
+[ 📅 Hoje ]  [ 📅 7 dias ]  [ 📅 30 dias ]
+[ 🧪 Testes hoje ]  [ 🧪 7 dias ]  [ 🧪 30 dias ]
+```
+
+### Comandos
+
 | Comando | Descrição |
 |---|---|
-| `/?` | Lista todos os comandos |
+| `/?` | Abre o menu interativo com botões |
+| `/bater` | Envia confirmação com botões Sim ✅ / Não ❌ antes de registrar o ponto |
+| `/teste_bater` | Registra em modo teste, independente do modo atual |
 | `/ping` | Confirma que o app está rodando |
 | `/status` | Modo, próxima batida e último heartbeat |
 | `/schedules` | Lista todos os schedules configurados |
@@ -73,6 +92,33 @@ Configure o token e o chat ID na aba **Configurações → // telegram**. Comand
 | `/teste_d` | Batidas de teste do dia |
 | `/teste_s` | Batidas de teste dos últimos 7 dias |
 | `/teste_m` | Batidas de teste dos últimos 30 dias |
+
+### Variáveis da mensagem de confirmação
+
+A mensagem enviada após cada batida é personalizável em **Configurações → // telegram**. Variáveis disponíveis:
+
+| Variável | Descrição | Exemplo |
+|---|---|---|
+| `{dia_semana}` | Dia da semana da batida | `Quarta-feira` |
+| `{data}` | Data da batida | `25/06/2026` |
+| `{hora}` | Horário da batida | `08:00` |
+| `{versao}` | Versão do app | `2.0` |
+| `{dia_semana_prox}` | Dia da semana do próximo ponto | `Quarta-feira` |
+| `{data_prox}` | Data do próximo ponto | `25/06/2026` |
+| `{hora_prox}` | Horário do próximo ponto | `12:00` |
+
+Exemplo de mensagem personalizada:
+
+```
+✅ Ponto batido com sucesso!
+📅 {dia_semana}, {data} às {hora}.
+
+⏭ Próximo: {dia_semana_prox}, {data_prox} às {hora_prox}.
+
+Registro automático via bruno.ponto v{versao} 🟢
+```
+
+Se não houver próximo ponto agendado, `{dia_semana_prox}`, `{data_prox}` e `{hora_prox}` exibem `—`.
 
 ---
 

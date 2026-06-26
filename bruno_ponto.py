@@ -400,15 +400,26 @@ def _preencher_formulario(driver, cfg: dict, modo_teste: bool = False):
 DIAS_PT = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira",
            "Sexta-feira", "Sábado", "Domingo"]
 
-def _msg_telegram(hora_label: str, modo_teste: bool, template: str = "") -> str:
+def _msg_telegram(hora_label: str, modo_teste: bool, template: str = "", cfg: dict = None) -> str:
     now        = datetime.now()
     dia_semana = DIAS_PT[now.weekday()]
     data_fmt   = now.strftime("%d/%m/%Y")
     prefixo    = "[TESTE] " if modo_teste else ""
     tmpl       = template.strip() or _MSG_PADRAO
+
+    dia_semana_prox = data_prox = hora_prox = "—"
+    if cfg is not None:
+        prox = proximo_ponto(cfg)
+        if prox:
+            dia_semana_prox = DIAS_PT[prox.weekday()]
+            data_prox       = prox.strftime("%d/%m/%Y")
+            hora_prox       = prox.strftime("%H:%M")
+
     try:
-        corpo = tmpl.format(dia_semana=dia_semana, data=data_fmt,
-                            hora=hora_label, versao=APP_VERSION)
+        corpo = tmpl.format(
+            dia_semana=dia_semana, data=data_fmt, hora=hora_label, versao=APP_VERSION,
+            dia_semana_prox=dia_semana_prox, data_prox=data_prox, hora_prox=hora_prox,
+        )
     except KeyError:
         corpo = tmpl
     return f"{prefixo}{corpo}"
@@ -489,7 +500,7 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                     _driver = None
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=True))
                 app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=True,
-                    template=cfg.get("telegram_mensagem", "")))
+                    template=cfg.get("telegram_mensagem", ""), cfg=cfg))
                 app_ref._set_tray_estado("normal")
             else:
                 ok_msg = f"✓ Ponto registrado às {hora_label}"
@@ -504,7 +515,7 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                     _driver = None
                 app_ref.root.after(0, lambda: app_ref.show_alert(hora_label, agora, modo_teste=False))
                 app_ref._enviar_telegram(_msg_telegram(hora_label, modo_teste=False,
-                    template=cfg.get("telegram_mensagem", "")))
+                    template=cfg.get("telegram_mensagem", ""), cfg=cfg))
                 app_ref._set_tray_estado("normal")
 
         except Exception as e:
@@ -1440,10 +1451,13 @@ class BrunoPontoApp:
         self._field_info(msg_lbl_row,
             "Texto enviado ao Telegram após cada batida.\n\n"
             "Variáveis disponíveis:\n"
-            "  {dia_semana} → ex: Quarta-feira\n"
-            "  {data}       → ex: 24/06/2026\n"
-            "  {hora}       → ex: 08:00\n"
-            "  {versao}     → versão do app").pack(side="left", padx=(4, 0))
+            "  {dia_semana}      → ex: Quarta-feira\n"
+            "  {data}            → ex: 24/06/2026\n"
+            "  {hora}            → ex: 08:00\n"
+            "  {versao}          → versão do app\n"
+            "  {dia_semana_prox} → ex: Quinta-feira\n"
+            "  {data_prox}       → ex: 25/06/2026\n"
+            "  {hora_prox}       → ex: 12:00").pack(side="left", padx=(4, 0))
         self.telegram_msg_text = tk.Text(tg_card,
                                          font=("Consolas", 10),
                                          bg=C["input_bg"], fg=C["green"],
@@ -1454,7 +1468,7 @@ class BrunoPontoApp:
             self.cfg.get("telegram_mensagem", _MSG_PADRAO))
         self.telegram_msg_text.pack(fill="x", padx=10, pady=(2, 4))
         tk.Label(tg_card,
-                 text="variáveis: {dia_semana}  {data}  {hora}  {versao}",
+                 text="variáveis: {dia_semana}  {data}  {hora}  {versao}  {dia_semana_prox}  {data_prox}  {hora_prox}",
                  font=("Consolas", 8), bg=C["section_bg"],
                  fg=C["muted"]).pack(anchor="w", padx=10, pady=(0, 4))
         tg_btns = tk.Frame(tg_card, bg=C["section_bg"])
@@ -1849,7 +1863,7 @@ class BrunoPontoApp:
         self.cfg["telegram_mensagem"] = self.telegram_msg_text.get("1.0", "end-1c").strip()
         save_config(self.cfg)
         self._enviar_telegram(_msg_telegram("HH:MM", modo_teste=False,
-            template=self.cfg.get("telegram_mensagem", "")))
+            template=self.cfg.get("telegram_mensagem", ""), cfg=self.cfg))
 
     def _salvar_config_tab(self):
         self.cfg["telegram_token"]      = self.telegram_token_var.get().strip()
@@ -2270,6 +2284,16 @@ class BrunoPontoApp:
                     data = json.loads(r.read().decode())
                 for upd in data.get("result", []):
                     offset = upd["update_id"] + 1
+
+                    cb = upd.get("callback_query")
+                    if cb:
+                        sender = str(cb.get("from", {}).get("id", ""))
+                        if sender == chat_id:
+                            self._processar_callback_telegram(
+                                cb.get("data", ""), cb.get("id", "")
+                            )
+                        continue
+
                     msg = upd.get("message") or upd.get("edited_message")
                     if not msg:
                         continue
@@ -2284,6 +2308,56 @@ class BrunoPontoApp:
                 time.sleep(15)
                 continue
             time.sleep(8)
+
+    def _tg_send_inline(self, texto: str, linhas: list):
+        """linhas: lista de listas de (texto_botao, callback_data)."""
+        token   = self.cfg.get("telegram_token",   "").strip()
+        chat_id = self.cfg.get("telegram_chat_id", "").strip()
+        if not token or not chat_id:
+            return
+        def _enviar():
+            try:
+                url      = f"https://api.telegram.org/bot{token}/sendMessage"
+                keyboard = {"inline_keyboard": [
+                    [{"text": t, "callback_data": d} for t, d in linha]
+                    for linha in linhas
+                ]}
+                data     = urllib.parse.urlencode({
+                    "chat_id":      chat_id,
+                    "text":         texto,
+                    "reply_markup": json.dumps(keyboard),
+                }).encode()
+                urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=10)
+            except Exception as e:
+                log.error(f"Telegram inline erro: {e}")
+        threading.Thread(target=_enviar, daemon=True).start()
+
+    def _tg_answer_callback(self, callback_id: str, texto: str = ""):
+        token = self.cfg.get("telegram_token", "").strip()
+        if not token:
+            return
+        def _answer():
+            try:
+                url  = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
+                data = urllib.parse.urlencode({"callback_query_id": callback_id, "text": texto}).encode()
+                urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=10)
+            except Exception as e:
+                log.error(f"Telegram answer callback erro: {e}")
+        threading.Thread(target=_answer, daemon=True).start()
+
+    def _processar_callback_telegram(self, data: str, callback_id: str):
+        if data == "bater_sim":
+            hora_agora = datetime.now().strftime("%H:%M")
+            modo = "TESTE 🧪" if self.cfg.get("modo_teste") else "REAL ✅"
+            self._tg_answer_callback(callback_id, "Registrando...")
+            self._tg_send(f"⏳ Registrando ponto às {hora_agora}...\nModo: {modo}")
+            executar_acao(self.cfg, self, hora_agora)
+        elif data == "bater_nao":
+            self._tg_answer_callback(callback_id, "Cancelado.")
+            self._tg_send("❌ Registro cancelado.")
+        elif data.startswith("/"):
+            self._tg_answer_callback(callback_id)
+            self._processar_cmd_telegram(data)
 
     def _tg_send(self, texto: str):
         token   = self.cfg.get("telegram_token",   "").strip()
@@ -2307,23 +2381,31 @@ class BrunoPontoApp:
         _ABR = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
         if cmd == "/?":
-            self._tg_send(
-                "📋 Comandos disponíveis — Bruno Ponto\n\n"
-                "/ping       → Confirma que o app está ativo\n"
-                "/status     → Modo, próxima batida e heartbeat\n"
-                "/schedules  → Lista todos os agendamentos\n"
-                "/ferias     → Status do modo férias\n"
-                "/log        → Últimas 5 entradas do log\n\n"
-                "— Produção —\n"
-                "/dia        → Batidas reais de hoje\n"
-                "/semana     → Batidas reais dos últimos 7 dias\n"
-                "/mes        → Batidas reais dos últimos 30 dias\n\n"
-                "— Teste —\n"
-                "/teste_d    → Testes de hoje\n"
-                "/teste_s    → Testes dos últimos 7 dias\n"
-                "/teste_m    → Testes dos últimos 30 dias\n\n"
-                "/?          → Esta mensagem"
+            self._tg_send_inline(
+                "📋 Bruno Ponto — selecione um comando:",
+                [
+                    [("🟢 Bater ponto", "/bater"), ("🧪 Teste bater", "/teste_bater")],
+                    [("📡 Ping", "/ping"), ("📊 Status", "/status")],
+                    [("📋 Schedules", "/schedules"), ("🏖 Férias", "/ferias")],
+                    [("📄 Log", "/log")],
+                    [("📅 Hoje", "/dia"), ("📅 7 dias", "/semana"), ("📅 30 dias", "/mes")],
+                    [("🧪 Testes hoje", "/teste_d"), ("🧪 7 dias", "/teste_s"), ("🧪 30 dias", "/teste_m")],
+                ]
             )
+
+        elif cmd == "/bater":
+            hora_agora = datetime.now().strftime("%H:%M")
+            modo = "TESTE 🧪" if self.cfg.get("modo_teste") else "REAL ✅"
+            self._tg_send_inline(
+                f"🕐 Registrar ponto agora às {hora_agora}?\nModo: {modo}",
+                [[("Sim ✅", "bater_sim"), ("Não ❌", "bater_nao")]]
+            )
+
+        elif cmd == "/teste_bater":
+            hora_agora = datetime.now().strftime("%H:%M")
+            self._tg_send(f"🧪 Iniciando registro em modo TESTE às {hora_agora}...")
+            cfg_teste = {**self.cfg, "modo_teste": True}
+            executar_acao(cfg_teste, self, hora_agora)
 
         elif cmd == "/ping":
             agora = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
