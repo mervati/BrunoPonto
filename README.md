@@ -20,6 +20,7 @@ Automatiza o registro de ponto no sistema **Sólides/Tangerino**, executando os 
 - Watchdog: alerta no Telegram se o scheduler ficar inativo por mais de X horas
 - Alerta de demora: avisa se o Selenium demorar mais que o esperado
 - Bot do Telegram com comandos para consultar status e histórico
+- Notificação no Telegram ao adicionar, editar, habilitar/desabilitar ou remover schedules
 - Dead man's switch via healthchecks.io: alerta externo se o app parar de responder
 - PIN com opção de mostrar/ocultar
 - Configurações salvas localmente por máquina
@@ -92,6 +93,20 @@ O comando `/?` exibe um menu com botões clicáveis — basta tocar para executa
 | `/teste_d` | Batidas de teste do dia |
 | `/teste_s` | Batidas de teste dos últimos 7 dias |
 | `/teste_m` | Batidas de teste dos últimos 30 dias |
+
+### Notificações automáticas de schedule
+
+O bot envia uma mensagem sempre que um schedule é alterado diretamente pelo app:
+
+| Ação | Mensagem |
+|---|---|
+| Adicionar | `📅 ➕ Schedule adicionado: Nome`<br>`🕐 08:00 \| 12:00`<br>`📆 Segunda, Sexta` |
+| Editar | `📅 ✏️ Schedule atualizado: Nome`<br>`🕐 08:00 \| 12:00`<br>`📆 Segunda, Sexta` |
+| Habilitar | `✅ Schedule habilitado: Nome` |
+| Desabilitar | `🔕 Schedule desabilitado: Nome` |
+| Remover | `🗑 Schedule removido: Nome` |
+
+---
 
 ### Variáveis da mensagem de confirmação
 
