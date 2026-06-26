@@ -1173,6 +1173,7 @@ class BrunoPontoApp:
         self._telegram_poll_thread.start()
         self._update_heartbeat()
         self._atualizar_prox()
+        self._tg_registrar_comandos()
 
     def _center(self):
         self.root.update_idletasks()
@@ -1880,6 +1881,7 @@ class BrunoPontoApp:
         except ValueError:
             pass
         save_config(self.cfg)
+        self._tg_registrar_comandos()
         self.add_log("Configurações salvas.", "ok")
         messagebox.showinfo(APP_NAME, "Configurações salvas com sucesso!", parent=self.root)
 
@@ -2309,6 +2311,44 @@ class BrunoPontoApp:
                 continue
             time.sleep(8)
 
+    def _tg_registrar_comandos(self):
+        token = self.cfg.get("telegram_token", "").strip()
+        if not token:
+            return
+        comandos = [
+            {"command": "menu",        "description": "Abre o menu interativo com botões"},
+            {"command": "bater",       "description": "Registra o ponto agora (com confirmação)"},
+            {"command": "teste_bater", "description": "Registra em modo teste (sem clicar)"},
+            {"command": "ping",        "description": "Confirma que o app está ativo"},
+            {"command": "status",      "description": "Modo, próxima batida e heartbeat"},
+            {"command": "schedules",   "description": "Lista todos os agendamentos"},
+            {"command": "ferias",      "description": "Status do modo férias"},
+            {"command": "log",         "description": "Últimas 5 entradas do log"},
+            {"command": "dia",         "description": "Batidas reais de hoje"},
+            {"command": "semana",      "description": "Batidas reais dos últimos 7 dias"},
+            {"command": "mes",         "description": "Batidas reais dos últimos 30 dias"},
+            {"command": "teste_d",     "description": "Testes de hoje"},
+            {"command": "teste_s",     "description": "Testes dos últimos 7 dias"},
+            {"command": "teste_m",     "description": "Testes dos últimos 30 dias"},
+        ]
+        def _registrar():
+            try:
+                url     = f"https://api.telegram.org/bot{token}/setMyCommands"
+                payload = json.dumps({"commands": comandos}).encode("utf-8")
+                req     = urllib.request.Request(
+                    url, data=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    resp = json.loads(r.read().decode())
+                if resp.get("ok"):
+                    log.info("Telegram: comandos registrados com sucesso.")
+                else:
+                    log.error(f"Telegram setMyCommands falhou: {resp}")
+            except Exception as e:
+                log.error(f"Telegram setMyCommands erro: {e}")
+        threading.Thread(target=_registrar, daemon=True).start()
+
     def _tg_send_inline(self, texto: str, linhas: list):
         """linhas: lista de listas de (texto_botao, callback_data)."""
         token   = self.cfg.get("telegram_token",   "").strip()
@@ -2380,7 +2420,7 @@ class BrunoPontoApp:
     def _processar_cmd_telegram(self, cmd: str):
         _ABR = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
-        if cmd == "/?":
+        if cmd in ("/?", "/menu"):
             self._tg_send_inline(
                 "📋 Bruno Ponto — selecione um comando:",
                 [
