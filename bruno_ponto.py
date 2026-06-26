@@ -260,7 +260,6 @@ def _criar_driver():
     """Tenta criar WebDriver na ordem: Chrome → Edge → Firefox."""
     erros = []
 
-    # Permissões concedidas automaticamente — evita popups de câmera e localização
     _PREFS = {
         "profile.default_content_setting_values.geolocation":        1,
         "profile.default_content_setting_values.media_stream_camera": 2,
@@ -271,6 +270,8 @@ def _criar_driver():
     try:
         opts = ChromeOptions()
         opts.add_argument("--start-maximized")
+        opts.add_argument("--use-fake-device-for-media-stream")
+        opts.add_argument("--disable-features=MediaStreamTrack")
         opts.add_experimental_option("excludeSwitches", ["enable-automation"])
         opts.add_experimental_option("useAutomationExtension", False)
         opts.add_experimental_option("prefs", _PREFS)
@@ -281,6 +282,8 @@ def _criar_driver():
     try:
         opts = EdgeOptions()
         opts.add_argument("--start-maximized")
+        opts.add_argument("--use-fake-device-for-media-stream")
+        opts.add_argument("--disable-features=MediaStreamTrack")
         opts.add_experimental_option("prefs", _PREFS)
         return webdriver.Edge(options=opts)
     except Exception as e:
@@ -288,6 +291,8 @@ def _criar_driver():
 
     try:
         opts = FirefoxOptions()
+        opts.set_preference("permissions.default.camera", 2)
+        opts.set_preference("permissions.default.microphone", 2)
         return webdriver.Firefox(options=opts)
     except Exception as e:
         erros.append(f"Firefox: {e}")
@@ -2023,6 +2028,11 @@ class BrunoPontoApp:
         self._render_schedules()
         self._atualizar_prox()
         self.add_log(f"Schedule '{entry['nome']}' {acao}.", "ok")
+        icone    = "➕" if edit_index is None else "✏️"
+        _dias    = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+        dias_str  = ", ".join(_dias[d] for d in sorted(entry.get("dias", [])))
+        horas_str = " | ".join(sorted(entry.get("horarios", [])))
+        self._tg_send(f"📅 {icone} Schedule {acao}: {entry['nome']}\n🕐 {horas_str}\n📆 {dias_str}")
 
     def _toggle_schedule_ativo(self, idx):
         schedules = self.cfg.get("schedules", [])
@@ -2050,6 +2060,8 @@ class BrunoPontoApp:
         self._atualizar_prox()
         estado = "habilitado" if s["ativo"] else "desabilitado"
         self.add_log(f"Schedule '{s['nome']}' {estado}.", "ok" if s["ativo"] else "info")
+        icone = "✅" if s["ativo"] else "🔕"
+        self._tg_send(f"{icone} Schedule {estado}: {s['nome']}")
 
     def _remover_schedule(self, idx):
         schedules = self.cfg.get("schedules", [])
@@ -2060,6 +2072,7 @@ class BrunoPontoApp:
         self._render_schedules()
         self._atualizar_prox()
         self.add_log(f"Schedule '{nome}' removido.", "info")
+        self._tg_send(f"🗑 Schedule removido: {nome}")
 
     def _testar_agora(self):
         hora_agora = datetime.now().strftime("%H:%M")
