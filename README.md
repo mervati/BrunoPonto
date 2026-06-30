@@ -5,7 +5,7 @@
 <img src="https://img.shields.io/github/v/release/mervati/BrunoPonto?style=for-the-badge&label=vers%C3%A3o&color=00b894&labelColor=0d1117" />
 <img src="https://img.shields.io/badge/plataforma-Windows-0078d4?style=for-the-badge&labelColor=0d1117&logo=windows" />
 <img src="https://img.shields.io/badge/python-3.x-3776ab?style=for-the-badge&labelColor=0d1117&logo=python&logoColor=white" />
-<img src="https://img.shields.io/github/downloads/mervati/BrunoPonto/total?style=for-the-badge&label=downloads&color=6c5ce7&labelColor=0d1117" />
+<img src="https://img.shields.io/github/downloads/mervati/BrunoPonto/total?style=for-the-badge&label=downloads&color=6c5ce7&labelColor=0d1117&cacheSeconds=0" />
 
 </div>
 
