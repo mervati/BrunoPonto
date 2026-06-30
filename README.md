@@ -24,6 +24,7 @@ Automatiza o registro de ponto no sistema **Sólides/Tangerino**, executando os 
 - Dead man's switch via healthchecks.io: alerta externo se o app parar de responder
 - PIN com opção de mostrar/ocultar
 - Configurações salvas localmente por máquina
+- Atualização automática via GitHub Releases com um clique
 
 ---
 
@@ -142,6 +143,20 @@ Se não houver próximo ponto agendado, `{dia_semana_prox}`, `{data_prox}` e `{h
 O app envia um ping a cada minuto para a URL configurada em **Configurações → // healthchecks.io**. Se os pings pararem (app fechado ou travado), o healthchecks.io dispara um alerta externo.
 
 Configure o webhook no healthchecks.io apontando para a API do Telegram para receber o alerta no mesmo bot.
+
+---
+
+## Atualização automática
+
+O app verifica automaticamente se há uma nova versão disponível ao iniciar. Se houver, um botão **⬆ vX.X** aparece no canto superior direito da janela.
+
+Ao clicar:
+
+1. Uma confirmação é exibida com a versão disponível
+2. Se aceitar, o novo `BrunoPonto.exe` é baixado em segundo plano
+3. O app se fecha, substitui o executável e reinicia sozinho
+
+Não é necessário nenhuma ação manual — basta confirmar quando o botão aparecer.
 
 ---
 
