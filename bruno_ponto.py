@@ -1245,38 +1245,70 @@ class BrunoPontoApp:
             parent=self.root
         )
         if resp:
-            threading.Thread(
-                target=self._baixar_e_aplicar_atualizacao,
-                args=(versao, url),
-                daemon=True
-            ).start()
+            self._baixar_e_aplicar_atualizacao(versao, url)
 
     def _baixar_e_aplicar_atualizacao(self, versao, url):
-        try:
-            self.add_log(f"Baixando v{versao}...", "info")
-            tmp_exe = os.path.join(tempfile.gettempdir(), "BrunoPonto_new.exe")
-            urllib.request.urlretrieve(url, tmp_exe)
-            self.add_log("Download concluído. Reiniciando...", "ok")
-            current_exe = sys.executable
-            tmp_dir     = tempfile.gettempdir()
-            bat = (
-                "@echo off\n"
-                "timeout /t 2 /nobreak > NUL\n"
-                f'for /d %%i in ("{tmp_dir}\\_MEI*") do rd /s /q "%%i"\n'
-                f'move /y "{tmp_exe}" "{current_exe}"\n'
-                f'start "" "{current_exe}"\n'
-                "del \"%~f0\"\n"
-            )
-            bat_path = os.path.join(tempfile.gettempdir(), "bruno_update.bat")
-            with open(bat_path, "w") as f:
-                f.write(bat)
-            subprocess.Popen(
-                ["cmd", "/c", bat_path],
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-            os._exit(0)
-        except Exception as e:
-            self.add_log(f"Erro na atualização: {e}", "erro")
+        C = CORES
+
+        # janela de progresso
+        prog_win = tk.Toplevel(self.root)
+        prog_win.title("Atualizando...")
+        prog_win.configure(bg=C["bg"])
+        prog_win.resizable(False, False)
+        prog_win.geometry("360x110")
+        prog_win.transient(self.root)
+        prog_win.grab_set()
+        x = self.root.winfo_rootx() + (580 - 360) // 2
+        y = self.root.winfo_rooty() + (800 - 110) // 2
+        prog_win.geometry(f"360x110+{x}+{y}")
+
+        tk.Label(prog_win, text=f"Baixando v{versao}...", font=("Consolas", 10),
+                 bg=C["bg"], fg=C["text"]).pack(pady=(18, 6))
+
+        bar = ttk.Progressbar(prog_win, length=300, mode="determinate", maximum=100)
+        bar.pack()
+
+        pct_lbl = tk.Label(prog_win, text="0%", font=("Consolas", 9),
+                           bg=C["bg"], fg=C["muted"])
+        pct_lbl.pack(pady=4)
+
+        def _reporthook(count, block_size, total_size):
+            if total_size > 0:
+                pct = min(int(count * block_size * 100 / total_size), 100)
+                self.root.after(0, lambda p=pct: (bar.configure(value=p),
+                                                   pct_lbl.configure(text=f"{p}%")))
+
+        def _baixar():
+            try:
+                tmp_exe = os.path.join(tempfile.gettempdir(), "BrunoPonto_new.exe")
+                urllib.request.urlretrieve(url, tmp_exe, reporthook=_reporthook)
+
+                self.root.after(0, lambda: pct_lbl.configure(text="Instalando..."))
+                self.root.after(0, lambda: bar.configure(value=100))
+
+                current_exe = sys.executable
+                tmp_dir     = tempfile.gettempdir()
+                bat = (
+                    "@echo off\n"
+                    "timeout /t 3 /nobreak > NUL\n"
+                    f'for /d %%i in ("{tmp_dir}\\_MEI*") do rd /s /q "%%i" 2>NUL\n'
+                    f'move /y "{tmp_exe}" "{current_exe}"\n'
+                    f'start "" "{current_exe}"\n'
+                    "del \"%~f0\"\n"
+                )
+                bat_path = os.path.join(tmp_dir, "bruno_update.bat")
+                with open(bat_path, "w") as f:
+                    f.write(bat)
+                subprocess.Popen(["cmd", "/c", bat_path],
+                                 creationflags=subprocess.CREATE_NO_WINDOW)
+                self.root.after(500, lambda: os._exit(0))
+            except Exception as e:
+                self.root.after(0, lambda: (
+                    prog_win.destroy(),
+                    messagebox.showerror("Erro na atualização", str(e), parent=self.root)
+                ))
+
+        threading.Thread(target=_baixar, daemon=True).start()
 
     def _center(self):
         self.root.update_idletasks()
