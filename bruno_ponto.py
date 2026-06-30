@@ -1258,9 +1258,11 @@ class BrunoPontoApp:
             urllib.request.urlretrieve(url, tmp_exe)
             self.add_log("Download concluído. Reiniciando...", "ok")
             current_exe = sys.executable
+            tmp_dir     = tempfile.gettempdir()
             bat = (
                 "@echo off\n"
                 "timeout /t 2 /nobreak > NUL\n"
+                f'for /d %%i in ("{tmp_dir}\\_MEI*") do rd /s /q "%%i"\n'
                 f'move /y "{tmp_exe}" "{current_exe}"\n'
                 f'start "" "{current_exe}"\n'
                 "del \"%~f0\"\n"
