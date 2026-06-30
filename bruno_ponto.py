@@ -62,7 +62,7 @@ import tempfile
 #  CONSTANTES
 # ──────────────────────────────────────────────────────
 APP_NAME    = "Bruno Ponto"
-APP_VERSION = "2.4"
+APP_VERSION = "2.6"
 URL_PONTO   = "https://app.tangerino.com.br/Tangerino/"
 GITHUB_REPO = "mervati/BrunoPonto"
 
@@ -1302,8 +1302,9 @@ class BrunoPontoApp:
                 tmp_dir     = tempfile.gettempdir()
                 bat = (
                     "@echo off\n"
-                    "timeout /t 3 /nobreak > NUL\n"
+                    "timeout /t 6 /nobreak > NUL\n"
                     f'for /d %%i in ("{tmp_dir}\\_MEI*") do rd /s /q "%%i" 2>NUL\n'
+                    "timeout /t 1 /nobreak > NUL\n"
                     f'move /y "{tmp_exe}" "{current_exe}"\n'
                     f'start "" "{current_exe}"\n'
                     "del \"%~f0\"\n"
@@ -1313,7 +1314,8 @@ class BrunoPontoApp:
                     f.write(bat)
                 subprocess.Popen(["cmd", "/c", bat_path],
                                  creationflags=subprocess.CREATE_NO_WINDOW)
-                self.root.after(500, lambda: os._exit(0))
+                # Fecha o Tkinter corretamente para liberar os handles dos DLLs
+                self.root.after(500, self.root.destroy)
             except Exception as e:
                 self.root.after(0, lambda: (
                     prog_win.destroy(),
@@ -2783,6 +2785,8 @@ class BrunoPontoApp:
                 "Aviso: selenium não instalado — modo real desabilitado.  "
                 "(pip install selenium)", "erro")
         self.root.mainloop()
+        # Após o mainloop encerrar (ex: atualização), garante saída limpa
+        sys.exit(0)
 
 
 # ──────────────────────────────────────────────────────
