@@ -62,7 +62,7 @@ import tempfile
 #  CONSTANTES
 # ──────────────────────────────────────────────────────
 APP_NAME    = "Bruno Ponto"
-APP_VERSION = "2.7"
+APP_VERSION = "2.8"
 URL_PONTO   = "https://app.tangerino.com.br/Tangerino/"
 GITHUB_REPO = "mervati/BrunoPonto"
 
