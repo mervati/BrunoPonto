@@ -56,13 +56,15 @@ except ImportError:
 
 import urllib.request
 import urllib.parse
+import tempfile
 
 # ──────────────────────────────────────────────────────
 #  CONSTANTES
 # ──────────────────────────────────────────────────────
 APP_NAME    = "Bruno Ponto"
-APP_VERSION = "2.0"
+APP_VERSION = "2.1"
 URL_PONTO   = "https://app.tangerino.com.br/Tangerino/"
+GITHUB_REPO = "mervati/PontoBruno"
 
 # Quando empacotado como .exe pelo PyInstaller, __file__ aponta para a pasta
 # temporária de extração. sys.executable aponta para o .exe de verdade.
@@ -1179,6 +1181,77 @@ class BrunoPontoApp:
         self._update_heartbeat()
         self._atualizar_prox()
         self._tg_registrar_comandos()
+        threading.Thread(target=self._checar_atualizacao_bg, daemon=True).start()
+
+    # ── ATUALIZAÇÃO ───────────────────────────────────────
+
+    def _checar_atualizacao_bg(self):
+        versao, url = self._verificar_atualizacao()
+        if versao:
+            self.root.after(0, lambda: self._mostrar_notif_atualizacao(versao, url))
+
+    def _verificar_atualizacao(self):
+        try:
+            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            req = urllib.request.Request(api_url, headers={"User-Agent": "BrunoPonto"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read().decode())
+            tag = data.get("tag_name", "").lstrip("v")
+            if not tag:
+                return None, None
+            latest  = tuple(int(x) for x in tag.split("."))
+            current = tuple(int(x) for x in APP_VERSION.split("."))
+            if latest > current:
+                for asset in data.get("assets", []):
+                    if asset["name"] == "BrunoPonto.exe":
+                        return tag, asset["browser_download_url"]
+        except Exception as e:
+            log.error(f"Verificação de atualização: {e}")
+        return None, None
+
+    def _mostrar_notif_atualizacao(self, versao, url):
+        self._btn_update.config(
+            text=f"⬆ v{versao}",
+            command=lambda: self._confirmar_atualizacao(versao, url)
+        )
+
+    def _confirmar_atualizacao(self, versao, url):
+        resp = messagebox.askyesno(
+            "Atualização disponível",
+            f"Nova versão v{versao} disponível.\n\nDeseja baixar e instalar agora?\nO app será reiniciado automaticamente.",
+            parent=self.root
+        )
+        if resp:
+            threading.Thread(
+                target=self._baixar_e_aplicar_atualizacao,
+                args=(versao, url),
+                daemon=True
+            ).start()
+
+    def _baixar_e_aplicar_atualizacao(self, versao, url):
+        try:
+            self.add_log(f"Baixando v{versao}...", "info")
+            tmp_exe = os.path.join(tempfile.gettempdir(), "BrunoPonto_new.exe")
+            urllib.request.urlretrieve(url, tmp_exe)
+            self.add_log("Download concluído. Reiniciando...", "ok")
+            current_exe = sys.executable
+            bat = (
+                "@echo off\n"
+                "timeout /t 2 /nobreak > NUL\n"
+                f'move /y "{tmp_exe}" "{current_exe}"\n'
+                f'start "" "{current_exe}"\n'
+                "del \"%~f0\"\n"
+            )
+            bat_path = os.path.join(tempfile.gettempdir(), "bruno_update.bat")
+            with open(bat_path, "w") as f:
+                f.write(bat)
+            subprocess.Popen(
+                ["cmd", "/c", bat_path],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            os._exit(0)
+        except Exception as e:
+            self.add_log(f"Erro na atualização: {e}", "erro")
 
     def _center(self):
         self.root.update_idletasks()
@@ -1212,6 +1285,17 @@ class BrunoPontoApp:
                  bg=C["section_bg"], fg=C["green"]).pack(side="right")
         tk.Label(tright, text=f"v{APP_VERSION}  ", font=("Consolas", 9),
                  bg=C["section_bg"], fg=C["muted"]).pack(side="right")
+        self._btn_update = tk.Button(
+            tright, text="",
+            bg=C["section_bg"], fg=C["amber"],
+            font=("Consolas", 9, "bold"),
+            relief="flat", cursor="hand2", bd=0,
+            highlightthickness=0,
+            activebackground=C["section_bg"],
+            activeforeground=C["green"],
+            padx=6
+        )
+        self._btn_update.pack(side="right", padx=(0, 10))
 
         # Banner teste
         self.teste_banner = tk.Frame(self.root, height=28)
