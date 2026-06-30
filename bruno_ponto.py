@@ -1212,8 +1212,31 @@ class BrunoPontoApp:
     def _mostrar_notif_atualizacao(self, versao, url):
         self._btn_update.config(
             text=f"⬆ v{versao}",
+            fg=CORES["amber"],
+            font=("Consolas", 9, "bold"),
             command=lambda: self._confirmar_atualizacao(versao, url)
         )
+
+    def _verificar_atualizacao_manual(self):
+        self._btn_update.config(text="🔄 verificando...", state="disabled")
+        def _checar():
+            versao, url = self._verificar_atualizacao()
+            def _resultado():
+                if versao:
+                    self._mostrar_notif_atualizacao(versao, url)
+                    self._confirmar_atualizacao(versao, url)
+                else:
+                    self._btn_update.config(
+                        text="🔄 atualizar", fg=CORES["muted"],
+                        font=("Consolas", 9), state="normal"
+                    )
+                    messagebox.showinfo(
+                        "Sem atualizações",
+                        f"Você já está na versão mais recente (v{APP_VERSION}).",
+                        parent=self.root
+                    )
+            self.root.after(0, _resultado)
+        threading.Thread(target=_checar, daemon=True).start()
 
     def _confirmar_atualizacao(self, versao, url):
         resp = messagebox.askyesno(
@@ -1286,14 +1309,15 @@ class BrunoPontoApp:
         tk.Label(tright, text=f"v{APP_VERSION}  ", font=("Consolas", 9),
                  bg=C["section_bg"], fg=C["muted"]).pack(side="right")
         self._btn_update = tk.Button(
-            tright, text="",
-            bg=C["section_bg"], fg=C["amber"],
-            font=("Consolas", 9, "bold"),
+            tright, text="🔄 atualizar",
+            bg=C["section_bg"], fg=C["muted"],
+            font=("Consolas", 9),
             relief="flat", cursor="hand2", bd=0,
             highlightthickness=0,
             activebackground=C["section_bg"],
             activeforeground=C["green"],
-            padx=6
+            padx=6,
+            command=self._verificar_atualizacao_manual
         )
         self._btn_update.pack(side="right", padx=(0, 10))
 
