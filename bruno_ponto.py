@@ -64,7 +64,7 @@ import tempfile
 APP_NAME    = "Bruno Ponto"
 APP_VERSION = "2.1"
 URL_PONTO   = "https://app.tangerino.com.br/Tangerino/"
-GITHUB_REPO = "mervati/Bruno.Ponto"
+GITHUB_REPO = "mervati/BrunoPonto"
 
 # Quando empacotado como .exe pelo PyInstaller, __file__ aponta para a pasta
 # temporária de extração. sys.executable aponta para o .exe de verdade.
