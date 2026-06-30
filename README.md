@@ -1,5 +1,10 @@
 # BrunoPonto
 
+![GitHub release](https://img.shields.io/github/v/release/mervati/PontoBruno?label=vers%C3%A3o&color=00b894)
+![Platform](https://img.shields.io/badge/plataforma-Windows-0078d4)
+![Python](https://img.shields.io/badge/python-3.x-3776ab)
+![GitHub downloads](https://img.shields.io/github/downloads/mervati/PontoBruno/total?label=downloads&color=6c5ce7)
+
 Automatiza o registro de ponto no sistema **Sólides/Tangerino**, executando os horários configurados de forma automática via agendamento.
 
 ---
