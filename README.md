@@ -211,4 +211,4 @@ O arquivo `BrunoPonto.exe` será gerado na pasta `dist/`.
 
 ## Versão
 
-**v2.3**
+**v2.4**
