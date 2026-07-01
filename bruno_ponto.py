@@ -56,15 +56,13 @@ except ImportError:
 
 import urllib.request
 import urllib.parse
-import tempfile
 
 # ──────────────────────────────────────────────────────
 #  CONSTANTES
 # ──────────────────────────────────────────────────────
 APP_NAME    = "Bruno Ponto"
-APP_VERSION = "2.8"
+APP_VERSION = "2.1"
 URL_PONTO   = "https://app.tangerino.com.br/Tangerino/"
-GITHUB_REPO = "mervati/BrunoPonto"
 
 # Quando empacotado como .exe pelo PyInstaller, __file__ aponta para a pasta
 # temporária de extração. sys.executable aponta para o .exe de verdade.
@@ -1181,148 +1179,6 @@ class BrunoPontoApp:
         self._update_heartbeat()
         self._atualizar_prox()
         self._tg_registrar_comandos()
-        threading.Thread(target=self._checar_atualizacao_bg, daemon=True).start()
-
-    # ── ATUALIZAÇÃO ───────────────────────────────────────
-
-    def _checar_atualizacao_bg(self):
-        versao, url = self._verificar_atualizacao()
-        if versao:
-            self.root.after(0, lambda: self._mostrar_notif_atualizacao(versao, url))
-
-    def _verificar_atualizacao(self):
-        try:
-            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-            req = urllib.request.Request(api_url, headers={"User-Agent": "BrunoPonto"})
-            with urllib.request.urlopen(req, timeout=10) as r:
-                data = json.loads(r.read().decode())
-            tag = data.get("tag_name", "").lstrip("v")
-            if not tag:
-                return None, None
-            latest  = tuple(int(x) for x in tag.split("."))
-            current = tuple(int(x) for x in APP_VERSION.split("."))
-            if latest > current:
-                for asset in data.get("assets", []):
-                    if asset["name"] == "BrunoPonto.exe":
-                        return tag, asset["browser_download_url"]
-        except Exception as e:
-            log.error(f"Verificação de atualização: {e}")
-        return None, None
-
-    def _mostrar_notif_atualizacao(self, versao, url):
-        self._btn_update.config(
-            text=f"⬆ v{versao}",
-            bg=CORES["amber"], fg=CORES["bg"],
-            highlightbackground=CORES["amber"],
-            activebackground=CORES["amber"],
-            activeforeground=CORES["bg"],
-            font=("Consolas", 9, "bold"),
-            command=lambda: self._confirmar_atualizacao(versao, url)
-        )
-
-    def _verificar_atualizacao_manual(self):
-        C = CORES
-        self._btn_update.config(
-            text="verificando...", state="disabled",
-            fg=C["muted"], bg=C["section_bg"],
-            highlightbackground=C["muted"],
-            font=("Consolas", 9)
-        )
-        def _checar():
-            versao, url = self._verificar_atualizacao()
-            def _resultado():
-                if versao:
-                    self._mostrar_notif_atualizacao(versao, url)
-                    self._confirmar_atualizacao(versao, url)
-                else:
-                    self._btn_update.config(
-                        text="⬆ atualizar", state="normal",
-                        fg=C["green"], bg=C["section_bg"],
-                        highlightbackground=C["green"],
-                        activebackground=C["card"],
-                        font=("Consolas", 9, "bold")
-                    )
-                    messagebox.showinfo(
-                        "Sem atualizações",
-                        f"Você já está na versão mais recente (v{APP_VERSION}).",
-                        parent=self.root
-                    )
-            self.root.after(0, _resultado)
-        threading.Thread(target=_checar, daemon=True).start()
-
-    def _confirmar_atualizacao(self, versao, url):
-        resp = messagebox.askyesno(
-            "Atualização disponível",
-            f"Nova versão v{versao} disponível.\n\nDeseja baixar e instalar agora?\nO app será reiniciado automaticamente.",
-            parent=self.root
-        )
-        if resp:
-            self._baixar_e_aplicar_atualizacao(versao, url)
-
-    def _baixar_e_aplicar_atualizacao(self, versao, url):
-        C = CORES
-
-        # janela de progresso
-        prog_win = tk.Toplevel(self.root)
-        prog_win.title("Atualizando...")
-        prog_win.configure(bg=C["bg"])
-        prog_win.resizable(False, False)
-        prog_win.geometry("360x110")
-        prog_win.transient(self.root)
-        prog_win.grab_set()
-        x = self.root.winfo_rootx() + (580 - 360) // 2
-        y = self.root.winfo_rooty() + (800 - 110) // 2
-        prog_win.geometry(f"360x110+{x}+{y}")
-
-        tk.Label(prog_win, text=f"Baixando v{versao}...", font=("Consolas", 10),
-                 bg=C["bg"], fg=C["text"]).pack(pady=(18, 6))
-
-        bar = ttk.Progressbar(prog_win, length=300, mode="determinate", maximum=100)
-        bar.pack()
-
-        pct_lbl = tk.Label(prog_win, text="0%", font=("Consolas", 9),
-                           bg=C["bg"], fg=C["muted"])
-        pct_lbl.pack(pady=4)
-
-        def _reporthook(count, block_size, total_size):
-            if total_size > 0:
-                pct = min(int(count * block_size * 100 / total_size), 100)
-                self.root.after(0, lambda p=pct: (bar.configure(value=p),
-                                                   pct_lbl.configure(text=f"{p}%")))
-
-        def _baixar():
-            try:
-                tmp_exe = os.path.join(tempfile.gettempdir(), "BrunoPonto_new.exe")
-                urllib.request.urlretrieve(url, tmp_exe, reporthook=_reporthook)
-
-                self.root.after(0, lambda: pct_lbl.configure(text="Instalando..."))
-                self.root.after(0, lambda: bar.configure(value=100))
-
-                current_exe = sys.executable
-                tmp_dir     = tempfile.gettempdir()
-                bat = (
-                    "@echo off\n"
-                    "timeout /t 6 /nobreak > NUL\n"
-                    f'for /d %%i in ("{tmp_dir}\\_MEI*") do rd /s /q "%%i" 2>NUL\n'
-                    "timeout /t 1 /nobreak > NUL\n"
-                    f'move /y "{tmp_exe}" "{current_exe}"\n'
-                    f'start "" "{current_exe}"\n'
-                    "del \"%~f0\"\n"
-                )
-                bat_path = os.path.join(tmp_dir, "bruno_update.bat")
-                with open(bat_path, "w") as f:
-                    f.write(bat)
-                subprocess.Popen(["cmd", "/c", bat_path],
-                                 creationflags=subprocess.CREATE_NO_WINDOW)
-                # Fecha o Tkinter corretamente para liberar os handles dos DLLs
-                self.root.after(500, self.root.destroy)
-            except Exception as e:
-                self.root.after(0, lambda: (
-                    prog_win.destroy(),
-                    messagebox.showerror("Erro na atualização", str(e), parent=self.root)
-                ))
-
-        threading.Thread(target=_baixar, daemon=True).start()
 
     def _center(self):
         self.root.update_idletasks()
@@ -1356,19 +1212,6 @@ class BrunoPontoApp:
                  bg=C["section_bg"], fg=C["green"]).pack(side="right")
         tk.Label(tright, text=f"v{APP_VERSION}  ", font=("Consolas", 9),
                  bg=C["section_bg"], fg=C["muted"]).pack(side="right")
-        self._btn_update = tk.Button(
-            tright, text="⬆ atualizar",
-            bg=C["section_bg"], fg=C["green"],
-            font=("Consolas", 9, "bold"),
-            relief="flat", cursor="hand2",
-            highlightbackground=C["green"],
-            highlightthickness=1,
-            activebackground=C["card"],
-            activeforeground=C["green"],
-            padx=10, pady=3,
-            command=self._verificar_atualizacao_manual
-        )
-        self._btn_update.pack(side="right", padx=(0, 10))
 
         # Banner teste
         self.teste_banner = tk.Frame(self.root, height=28)
@@ -2785,8 +2628,6 @@ class BrunoPontoApp:
                 "Aviso: selenium não instalado — modo real desabilitado.  "
                 "(pip install selenium)", "erro")
         self.root.mainloop()
-        # Após o mainloop encerrar (ex: atualização), garante saída limpa
-        sys.exit(0)
 
 
 # ──────────────────────────────────────────────────────
