@@ -457,6 +457,17 @@ def executar_acao(cfg: dict, app_ref, hora_label: str):
                 return
         except Exception:
             pass
+    if getattr(app_ref, '_skip_proximo', False):
+        app_ref._skip_proximo = False
+        msg = f"⏭ Batida pulada às {hora_label} ({datetime.now().strftime('%d/%m/%Y')})."
+        log.info(msg)
+        app_ref.root.after(0, lambda: app_ref.add_log(msg, "info"))
+        try:
+            app_ref._tg_send(f"⏭ Batida de {hora_label} pulada com sucesso.")
+        except Exception:
+            pass
+        return
+
     app_ref._update_heartbeat()
     prefixo = "[TESTE] " if modo_teste else ""
     msg = f"{prefixo}Abrindo navegador para registrar ponto às {hora_label} ({agora})..."
@@ -1155,8 +1166,9 @@ class BrunoPontoApp:
         self.root.geometry(f"{w}x{h}")
         self._center()
 
-        self._tray_icon   = None
-        self._tray_estado = "normal"  # "normal" | "alerta" | "executando"
+        self._tray_icon    = None
+        self._tray_estado  = "normal"  # "normal" | "alerta" | "executando"
+        self._skip_proximo = False
         _icones_tray()
         self._build_ui()
         self._setup_tray()
@@ -2342,7 +2354,9 @@ class BrunoPontoApp:
             {"command": "mes",         "description": "Batidas reais dos últimos 30 dias"},
             {"command": "teste_d",     "description": "Testes de hoje"},
             {"command": "teste_s",     "description": "Testes dos últimos 7 dias"},
-            {"command": "teste_m",     "description": "Testes dos últimos 30 dias"},
+            {"command": "teste_m",        "description": "Testes dos últimos 30 dias"},
+            {"command": "pular",          "description": "Pula a próxima batida agendada"},
+            {"command": "pular_reverter", "description": "Cancela o skip da próxima batida"},
         ]
         def _registrar():
             try:
@@ -2440,6 +2454,7 @@ class BrunoPontoApp:
                     [("🟢 Bater ponto", "/bater"), ("🧪 Teste bater", "/teste_bater")],
                     [("📡 Ping", "/ping"), ("📊 Status", "/status")],
                     [("📋 Schedules", "/schedules"), ("🏖 Férias", "/ferias")],
+                    [("⏭ Pular próximo", "/pular"), ("↩ Reverter pulo", "/pular_reverter")],
                     [("📄 Log", "/log")],
                     [("📅 Hoje", "/dia"), ("📅 7 dias", "/semana"), ("📅 30 dias", "/mes")],
                     [("🧪 Testes hoje", "/teste_d"), ("🧪 7 dias", "/teste_s"), ("🧪 30 dias", "/teste_m")],
@@ -2519,6 +2534,28 @@ class BrunoPontoApp:
                 fim = EditarScheduleWindow._iso_to_br(self.cfg.get("ferias_fim") or "")
                 datas = f"\n📅 {ini} → {fim}" if (ini or fim) else ""
                 self._tg_send(f"🏖 Modo férias: ATIVO{datas}")
+
+        elif cmd == "/pular":
+            prox = proximo_ponto(self.cfg)
+            if prox:
+                _DIAS_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+                dia  = _DIAS_PT[prox.weekday()]
+                data = prox.strftime("%d/%m/%Y")
+                hora = prox.strftime("%H:%M")
+                self._skip_proximo = True
+                self._tg_send(
+                    f"⏭ Próxima batida marcada para pular.\n"
+                    f"📅 {dia}, {data} às {hora} será ignorada."
+                )
+            else:
+                self._tg_send("⚠️ Nenhuma batida agendada para pular.")
+
+        elif cmd == "/pular_reverter":
+            if self._skip_proximo:
+                self._skip_proximo = False
+                self._tg_send("↩️ Skip cancelado. A próxima batida será executada normalmente.")
+            else:
+                self._tg_send("ℹ️ Nenhum skip ativo para reverter.")
 
         elif cmd == "/log":
             try:

@@ -80,6 +80,7 @@ O comando `/?` exibe um menu com botões clicáveis — basta tocar para executa
 [ 🟢 Bater ponto ]  [ 🧪 Teste bater ]
 [ 📡 Ping ]         [ 📊 Status ]
 [ 📋 Schedules ]    [ 🏖 Férias ]
+[ ⏭ Pular próximo ] [ ↩ Reverter pulo ]
 [ 📄 Log ]
 [ 📅 Hoje ]  [ 📅 7 dias ]  [ 📅 30 dias ]
 [ 🧪 Testes hoje ]  [ 🧪 7 dias ]  [ 🧪 30 dias ]
@@ -103,6 +104,8 @@ O comando `/?` exibe um menu com botões clicáveis — basta tocar para executa
 | `/teste_d` | Batidas de teste do dia |
 | `/teste_s` | Batidas de teste dos últimos 7 dias |
 | `/teste_m` | Batidas de teste dos últimos 30 dias |
+| `/pular` | Pula a próxima batida agendada |
+| `/pular_reverter` | Cancela o skip da próxima batida |
 
 ### Notificações automáticas de schedule
 
